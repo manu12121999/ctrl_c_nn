@@ -11,7 +11,7 @@ Since it is written 100% in Python, its performance is terrible compared to PyTo
 | Description                              | Status          |
 |------------------------------------------|-----------------|
 | Base Tensor class                        | :white_check_mark: |
-| Tensor operations (+, *, @)              | :x:             |
+| Tensor operations (+, *, @)              | :large_orange_diamond:|
 | Tensor Broadcasting                      | :x:             |
 | Simple Layers and Non-linearities        | :x:             |
 | Forward pass of simple NN                | :x:             |
