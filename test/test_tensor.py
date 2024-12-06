@@ -1,3 +1,10 @@
+import unittest
+import numpy as np
+try:
+    import torch
+except ImportError:
+    torch = None
+import ctrl_c_nn as ccm
 
 
 small_shapes = [
