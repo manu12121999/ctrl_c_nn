@@ -1,10 +1,3 @@
-import unittest
-import numpy as np
-try:
-    import torch
-except ImportError:
-    torch = None
-import ctrl_c_nn as ccm
 
 
 small_shapes = [
@@ -73,6 +66,7 @@ big_shapes = [
 ]
 
 all_shapes = [
+    (1,),
     (2,),
     (3,),
     (2, 1),
@@ -101,7 +95,7 @@ all_shapes = [
 ]
 
 
-class TestTensorOps(unittest.TestCase):
+class TestTensorLinOps(unittest.TestCase):
 
     def generic_various_shapes_test(self, func1, func2, init2, shapes):
         # Testing various tensor shapes
@@ -202,3 +196,29 @@ class TestTensorOps(unittest.TestCase):
     def test_add_big_non_sing_shaped_int(self):
         self.generic_various_shapes_test(np.add, ccm.Tensor.__add__, init2=lambda x: ccm.Tensor(x.tolist()),
                                          shapes=big_shapes_non_singleton)
+
+
+class TestTensorShapeManipulation(unittest.TestCase):
+    def test_basic_slicing(self):
+        tensor_np = np.random.randint(0, 10, size=(3, 4, 3, 1, 2))
+        tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
+        self.assertEqual(tensor_np[0].tolist(), tensor_ctrlc[0].tolist(), f"Tensor getitem does not work.")
+        self.assertEqual(tensor_np[1:2].tolist(), tensor_ctrlc[1:2].tolist(), f"Tensor getslice does not work.")
+        self.assertEqual(tensor_np[:2].tolist(), tensor_ctrlc[:2].tolist(), f"Tensor getslice does not work.")
+        self.assertEqual(tensor_np[:].tolist(), tensor_ctrlc[:].tolist(), f"Tensor getslice does not work.")
+        self.assertEqual(tensor_np[2:].tolist(), tensor_ctrlc[2:].tolist(), f"Tensor getslice does not work.")
+        self.assertEqual(tensor_np[0, 0].tolist(), tensor_ctrlc[0, 0].tolist(), f"Tensor multidim getitem does not work.")
+        self.assertEqual(tensor_np[0, 2:3].tolist(), tensor_ctrlc[0, 2:3].tolist(), f"Tensor multidim getitem does not work.")
+        self.assertEqual(tensor_np[:, 2].tolist(), tensor_ctrlc[:, 2].tolist(),f"Tensor multidim getitem does not work.")
+
+        self.assertEqual(tensor_np[0, 2:3, :, 0].tolist(), tensor_ctrlc[0, 2:3, :, 0].tolist(), f"Tensor multidim getitem does not work.")
+        self.assertEqual(tensor_np[:, 2, :3, 0].tolist(), tensor_ctrlc[:, 2, :3, 0].tolist(), f"Tensor multidim getitem does not work.")
+
+    def test_basic_flatten(self):
+        tensor_np = np.random.randint(0, 10, size=(3, 4, 3, 1, 2))
+        tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
+        self.assertEqual(tensor_np[0, 0, 0, 0].flatten().tolist(), tensor_ctrlc[0, 0, 0, 0].flatten().tolist(), f"Tensor flatten does not work.")
+        self.assertEqual(tensor_np[0, 0, 0].flatten().tolist(), tensor_ctrlc[0, 0, 0].flatten().tolist(), f"Tensor flatten does not work.")
+        self.assertEqual(tensor_np[0, 0].flatten().tolist(), tensor_ctrlc[0, 0].flatten().tolist(), f"Tensor flatten does not work.")
+        self.assertEqual(tensor_np.flatten().tolist(), tensor_ctrlc.flatten().tolist(), f"Tensor flatten does not work.")
+
