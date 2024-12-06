@@ -1,5 +1,11 @@
+import math
 import operator
+import sys
 from typing import List, Any
+from multiprocessing import Manager, Pool, Queue, Process
+
+
+sumprod = math.sumprod if sys.version_info >= (3, 12) else lambda p, q: sum([p_i*q_i for p_i, q_i in zip(p, q)])
 
 
 class LLOps:
@@ -38,14 +44,19 @@ class LLOps:
         # Transpose a 2-dimensional list
         # (I,J) -> (J,I)
         I, J = len(a), len(a[0])
-        transposed = [[0 for _ in range(I)] for _ in range(J)]
-        for i in range(I):
-            for j in range(J):
-                transposed[j][i] = a[i][j]
-        return transposed
+        return [[a[i][j] for i in range(I)] for j in range(J)]
 
     @staticmethod
-    def f_matmul_2dim(a: List, b: List):
+    def f_matmul_2d(a: List, b: List):
+        # perform matrix multiplication on two 2-dimensional lists
+        # (I,K) @ (K, J)  -> (I,J)
+        I, K, K2, J = len(a), len(a[0]), len(b), len(b[0])
+        assert K == K2
+        b_T = LLOps.f_transpose_2dim(b)
+        return [[sumprod(a[i], b_T[j]) for j in range(J)] for i in range(I)]
+
+    @staticmethod
+    def f_matmul_2d_old(a: List, b: List):
         # perform matrix multiplication on two 2-dimensional lists
         # (I,K) @ (K, J)  -> (I,J)
         I, K, K2, J = len(a), len(a[0]), len(b), len(b[0])
@@ -67,7 +78,7 @@ class LLOps:
     def f_vec_times_vec(a: List, b: List):
         # perform vector times matrix multiplication on a 1-dimensional list and another 2-dimensional lists
         assert len(a) == len(b)
-        return sum([a_i*b_i for a_i, b_i in zip(a, b)])
+        return sumprod(a, b)
 
     @staticmethod
     def f_mat_times_vec(a: List, b: List):
@@ -82,7 +93,7 @@ class LLOps:
     @staticmethod
     def f_squeeze(a, dim):
         # remove one dimension from a list of lists
-        if dim == 0:
+        if dim <= 0:
             return a[0]
         elif dim == 1:
             return [a_i[0] for a_i in a]
@@ -164,13 +175,13 @@ class Tensor:
         # input types: Tensors, output type: list
         print(f"multiplying shapes {a.shape} and {b.shape}")
         if a.ndim == 2 and b.ndim == 2:
-            return LLOps.f_matmul_2dim(a.elems, b.elems)
+            return LLOps.f_matmul_2d(a.elems, b.elems)
         # elif a.ndim == 2 and b.ndim == 3:
         #     print("dims", a.ndim, b.ndim)
-        #     return [LLOps.f_matmul_2dim(a.elems, b_i) for b_i in b.elems]
+        #     return [LLOps.f_matmul_2d(a.elems, b_i) for b_i in b.elems]
         # elif a.ndim == 3 and b.ndim == 2:
         #     print("dims", a.ndim, b.ndim)
-        #     return [LLOps.f_matmul_2dim(a_i, b.elems) for a_i in a.elems]
+        #     return [LLOps.f_matmul_2d(a_i, b.elems) for a_i in a.elems]
         elif a.ndim == 2 and b.ndim >= 3:
             return [Tensor._f_matmul(a, Tensor(b_i)) for b_i in b.elems]
         elif a.ndim >= 3 and b.ndim == 2:
