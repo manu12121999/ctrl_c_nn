@@ -265,16 +265,38 @@ class TestTensorShapeManipulation(unittest.TestCase):
 
         tensor_np[(3, 2)] = 1
         tensor_ctrlc[(3, 2)] = 1
-        self.assertEqual((tensor_np).tolist(), (tensor_ctrlc).tolist(), f"Tensor setitem scalar does not work.")
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setitem scalar does not work.")
 
         tensor_np[1, 5] = -1
         tensor_ctrlc[1, 5] = -1
-        self.assertEqual((tensor_np).tolist(), (tensor_ctrlc).tolist(), f"Tensor setitem scalar does not work.")
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setitem scalar does not work.")
 
         tensor_np[1] = np.ones((10))
         tensor_ctrlc[1] = ccm.Tensor.ones((10))
-        self.assertEqual((tensor_np).tolist(), (tensor_ctrlc).tolist(), f"Tensor setitem array does not work.")
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setitem array does not work.")
 
         tensor_np[0, 3:5] = np.ones((2,))
         tensor_ctrlc[0, 3:5] = ccm.Tensor.ones((2,))
-        self.assertEqual((tensor_np).tolist(), (tensor_ctrlc).tolist(), f"Tensor setitem array does not work.")
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setitem array does not work.")
+
+    def test_permute(self):
+        tensor_np = np.random.randint(0, 10, size=(5, 3))
+        tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
+        self.assertEqual(np.transpose(tensor_np, (1, 0)).tolist(), tensor_ctrlc.permute((1, 0)).tolist(), f"Tensor permute 2d does not work.")
+
+        tensor_np = np.random.randint(0, 10, size=(5, 3, 3))
+        tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
+        self.assertEqual(np.transpose(tensor_np, (1, 0, 2)).tolist(), tensor_ctrlc.permute((1, 0, 2)).tolist(), f"Tensor permute 3d does not work.")
+        self.assertEqual(np.transpose(tensor_np, (0, 2, 1)).tolist(), tensor_ctrlc.permute((0, 2, 1)).tolist(), f"Tensor permute 3d does not work.")
+        self.assertEqual(np.transpose(tensor_np, (0, 1, 2)).tolist(), tensor_ctrlc.permute((0, 1, 2)).tolist(), f"Tensor permute 3d does not work.")
+
+        tensor_np = np.random.randint(0, 10, size=(5, 3, 3, 3))
+        tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
+        self.assertEqual(np.transpose(tensor_np, (1, 0, 3, 2)).tolist(), tensor_ctrlc.permute((1, 0, 3, 2)).tolist(), f"Tensor permute 4d does not work.")
+        self.assertEqual(np.transpose(tensor_np, (3, 2, 1, 0)).tolist(), tensor_ctrlc.permute((3, 2, 1, 0)).tolist(), f"Tensor permute 4d does not work.")
+        self.assertEqual(np.transpose(tensor_np, (0, 3, 2, 1)).tolist(), tensor_ctrlc.permute((0, 3, 2, 1)).tolist(), f"Tensor permute 4d does not work.")
+
+        tensor_np = np.random.randint(0, 10, size=(1, 5, 3, 3, 3, 1))
+        tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
+        self.assertEqual(np.transpose(tensor_np, (4, 1, 0, 3, 5, 2)).tolist(), tensor_ctrlc.permute((4, 1, 0, 3, 5, 2)).tolist(), f"Tensor permute 6d does not work.")
+

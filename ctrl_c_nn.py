@@ -1,3 +1,4 @@
+import random
 import sys
 import math
 import operator
@@ -10,6 +11,7 @@ class LLOps:
     """
     Class for (recursive) functional operations on lists of lists
     """
+
     @staticmethod
     def fill(shape: tuple, value):
         # Make a new list (of lists) filled with value
@@ -17,6 +19,14 @@ class LLOps:
             return [value for _ in range(shape[0])]
         else:
             return [LLOps.fill(shape[1:], value) for _ in range(shape[0])]
+
+    @staticmethod
+    def fill_callable(shape: tuple, gen):
+        # Make a new list (of lists) filled with values generated from the callable gen
+        if len(shape) == 1:
+            return [gen() for _ in range(shape[0])]
+        else:
+            return [LLOps.fill(shape[1:], gen()) for _ in range(shape[0])]
 
     @staticmethod
     def f_unary_op(a: list, f):
@@ -129,7 +139,7 @@ class LLOps:
             return [LLOps.f_unsqueeze(a_i, dim-1) for a_i in a]
 
     @staticmethod
-    def f_slice(a: list, item: tuple[int]):
+    def f_slice(a: list, item: tuple):
         # Return a slice of the list of lists (e.g. a[0] or a[:, 3:2])
         if len(item) == 1:
             return a[item[0]]
@@ -152,7 +162,7 @@ class LLOps:
             return a
 
     @staticmethod
-    def f_setitem(a: list, key: tuple[int], value):
+    def f_setitem(a: list, key: tuple, value):
         # set the item at position key of list a to a value. Value can be scalar or list.  (a[key] = value)
         if len(key) == 1:
             a[key[0]] = value
@@ -160,13 +170,17 @@ class LLOps:
             LLOps.f_setitem(a[key[0]], key[1:], value)
 
     @staticmethod
-    def f_reshape_flattened(a: list, shape: tuple[int]):
+    def f_reshape_flattened(a: list, shape: tuple):
         # reshape a one-dimensional array (flattened) into a target format
         if len(shape) == 1:
             return a
         else:
             n = len(a) // shape[0]  # 2
             return [LLOps.f_reshape_flattened(a[i*n:(i+1)*n], shape[1:]) for i in range(shape[0])]
+
+    @staticmethod
+    def f_advanced_indexing_1d(a: (list, tuple), b: (list, tuple)):
+        return tuple([a[b_i] for b_i in b])
 
 
 class Tensor:
@@ -213,6 +227,22 @@ class Tensor:
         if isinstance(shape, int):
             shape = (shape, )
         return Tensor(LLOps.fill(shape, number))
+
+    @staticmethod
+    def random_float(shape, min=-1.0, max=1.0):
+        if isinstance(shape, int):
+            shape = (shape, )
+        return LLOps.fill_callable(shape, lambda: random.uniform(min, max))
+
+    @staticmethod
+    def random_int(shape, min=0, max=10):
+        if isinstance(shape, int):
+            shape = (shape,)
+        return Tensor(LLOps.fill_callable(shape, lambda: random.randint(min, max)))
+
+    @staticmethod
+    def stack(tensor_list):
+        Tensor([t.elems for t in tensor_list])
 
     ########################
     # Arithmetic Operations
@@ -316,9 +346,7 @@ class Tensor:
         assert isinstance(other, Tensor) is True
         return Tensor(Tensor._f_matmul(self, other))
 
-    def inv(self):
-        raise NotImplementedError
-
+    @property
     def T(self):
         if self.ndim == 2:
             return Tensor(LLOps.f_transpose_2d(self.elems))
@@ -327,6 +355,9 @@ class Tensor:
 
     def abs(self):
         return Tensor(LLOps.f_unary_op(self.elems, abs))
+
+    def __abs__(self):
+        return self.abs()
 
     ######################
     # Shape Manipulation
@@ -363,6 +394,26 @@ class Tensor:
     def reshape(self, shape):
         return Tensor(LLOps.f_reshape_flattened(LLOps.f_flatten(self.elems), shape))
 
+    def permute(self, shape):
+        # newindex = old_index[perm]
+        def calc_card(a):
+            prod = 1
+            card = []
+            for n in reversed(a):
+                card.insert(0, prod)
+                prod *= n
+            return card
+
+        old_shape = self.shape
+        new_shape = LLOps.f_advanced_indexing_1d(old_shape, shape)
+        new_tensor = Tensor.zeros(new_shape)
+        card = calc_card(old_shape)
+        for i in range(math.prod(old_shape)):
+            multi_dim_index = [(i//c) % m for c, m in zip(card, old_shape)]
+            new_index = LLOps.f_advanced_indexing_1d(multi_dim_index, shape)
+            new_tensor[new_index] = self[tuple(multi_dim_index)].item()
+        return new_tensor
+
 
 if __name__ == "__main__":
     a_list = [[2, 3],
@@ -372,6 +423,11 @@ if __name__ == "__main__":
     a_reshaped = Tensor(a_list).reshape((2, 3))
     print(a_reshaped.shape)
     print(a_reshaped.abs())
+
+    print(a_reshaped.permute((1,0)))
+
+    rand_tensor = Tensor.random_float((2, 4, 8, 2), 0.0, 1.2)
+    print(rand_tensor)
 
     b_list = [[4, 2],
               [12, 22]]          # 2,2
