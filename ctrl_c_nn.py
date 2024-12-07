@@ -1,8 +1,6 @@
 import sys
 import math
 import operator
-from functools import partial
-from typing import List, Tuple, Any
 from multiprocessing import Pool
 
 sumprod = math.sumprod if sys.version_info >= (3, 12) else lambda p, q: sum([p_i*q_i for p_i, q_i in zip(p, q)])
@@ -13,7 +11,7 @@ class LLOps:
     Class for (recursive) functional operations on lists of lists
     """
     @staticmethod
-    def fill(shape: Tuple, value):
+    def fill(shape: tuple, value):
         # Make a new list (of lists) filled with value
         if len(shape) == 1:
             return [value for _ in range(shape[0])]
@@ -21,7 +19,7 @@ class LLOps:
             return [LLOps.fill(shape[1:], value) for _ in range(shape[0])]
 
     @staticmethod
-    def f_unary_op(a: List, f):
+    def f_unary_op(a: list, f):
         # input tensor output list of list
         if isinstance(a[0], list):
             return [LLOps.f_unary_op(a_i, f) for a_i in a]
@@ -29,7 +27,7 @@ class LLOps:
             return [f(a_i) for a_i in a]
 
     @staticmethod
-    def f_operator_scalar(a: List, b: (int, float), op):
+    def f_operator_scalar(a: list, b: (int, float), op):
         # Add a scalar to a list (of lists). Other operations than add are supported too
         if isinstance(a[0], (int, float)):
             return [op(a_i, b) for a_i in a]
@@ -37,7 +35,7 @@ class LLOps:
             return [LLOps.f_operator_scalar(a_i, b, op) for a_i in a]
 
     @staticmethod
-    def f_operator_same_size(a: List, b: List, op):
+    def f_operator_same_size(a: list, b: list, op):
         # Add two list (of lists). Other operations than add are supported too
         if isinstance(a[0], (int, float)):
             return [op(a_i, b_i) for a_i, b_i in zip(a, b)]
@@ -45,20 +43,20 @@ class LLOps:
             return [LLOps.f_operator_same_size(a_i, b_i, op) for a_i, b_i in zip(a, b)]
 
     @staticmethod
-    def f_transpose_2d(a: List):
+    def f_transpose_2d(a: list):
         # Transpose a 2-dimensional list
         # (I,J) -> (J,I)
         I, J = len(a), len(a[0])
         return [[a[i][j] for i in range(I)] for j in range(J)]
 
     @staticmethod
-    def f_clone_2d(a: List):
+    def f_clone_2d(a: list):
         # Deep-copy a 2-dimensional list of shape (I, J)
         I, J = len(a), len(a[0])
         return [[a[i][j] for j in range(J)] for i in range(I)]
 
     @staticmethod
-    def f_matmul_2d(a: List, b: List):
+    def f_matmul_2d(a: list, b: list):
         # perform matrix multiplication on two 2-dimensional lists
         # (I,K) @ (K, J)  -> (I,J)
         I, K, K2, J = len(a), len(a[0]), len(b), len(b[0])
@@ -67,18 +65,16 @@ class LLOps:
         return [[sumprod(a[i], b_T[j]) for j in range(J)] for i in range(I)]
 
     @staticmethod
-    def f_matmul_2d_multiprocess(a: List, b: List):
+    def f_matmul_2d_multiprocess(a: list, b: list):
         # perform matrix multiplication on two 2-dimensional lists
         # (I,K) @ (K, J)  -> (I,J)
         I, K, K2, J = len(a), len(a[0]), len(b), len(b[0])
         assert K == K2
         with Pool(8) as p:
-            # return p.map(partial(LLOps.f_vec_times_mat, b=b), a)
-            # return p.map(LLOps.f_vec_times_mat_c, ((a_i, LLOps.f_clone_2d(b)) for a_i in a))
             return p.starmap(LLOps.f_vec_times_mat, ((a_i, b) for a_i in a), chunksize=max(1, I//8))
 
     @staticmethod
-    def f_matmul_2d_old(a: List, b: List):
+    def f_matmul_2d_old(a: list, b: list):
         # perform matrix multiplication on two 2-dimensional lists
         # (I,K) @ (K, J)  -> (I,J)
         I, K, K2, J = len(a), len(a[0]), len(b), len(b[0])
@@ -97,23 +93,23 @@ class LLOps:
         return result
 
     @staticmethod
-    def f_vec_times_vec(a: List, b: List):
+    def f_vec_times_vec(a: list, b: list):
         # perform vector times matrix multiplication on a 1-dimensional list and another 2-dimensional lists
         assert len(a) == len(b)
         return sumprod(a, b)
 
     @staticmethod
-    def f_mat_times_vec(a: List, b: List):
+    def f_mat_times_vec(a: list, b: list):
         # perform matrix times vector multiplication on a 2-dimensional list and another 1-dimensional lists
         return [LLOps.f_vec_times_vec(row, b) for row in a]
 
     @staticmethod
-    def f_vec_times_mat(a: List, b: List):
+    def f_vec_times_mat(a: list, b: list):
         # perform vector times vector multiplication on two 1-dimensional lists
         return [LLOps.f_vec_times_vec(a, row) for row in LLOps.f_transpose_2d(b)]
 
     @staticmethod
-    def f_squeeze(a: List, dim):
+    def f_squeeze(a: list, dim: int):
         # remove one dimension from a list of lists
         if dim == 0:
             return a[0]
@@ -123,7 +119,7 @@ class LLOps:
             return [LLOps.f_squeeze(a_i, dim-1) for a_i in a]
 
     @staticmethod
-    def f_unsqueeze(a: List, dim):
+    def f_unsqueeze(a: list, dim: int):
         # remove one dimension from a list of lists
         if dim == 0:
             return [a]
@@ -133,7 +129,7 @@ class LLOps:
             return [LLOps.f_unsqueeze(a_i, dim-1) for a_i in a]
 
     @staticmethod
-    def f_slice(a: List, item: Tuple):
+    def f_slice(a: list, item: tuple[int]):
         # Return a slice of the list of lists (e.g. a[0] or a[:, 3:2])
         if len(item) == 1:
             return a[item[0]]
@@ -145,7 +141,7 @@ class LLOps:
                 return LLOps.f_slice(a[index], item[1:])
 
     @staticmethod
-    def f_flatten(a: List):
+    def f_flatten(a: list):
         # Flatten a list of lists into a single list
         if isinstance(a[0], list):
             if isinstance(a[0][0], list):
@@ -156,7 +152,7 @@ class LLOps:
             return a
 
     @staticmethod
-    def f_setitem(a: List, key: Tuple[int], value):
+    def f_setitem(a: list, key: tuple[int], value):
         # set the item at position key of list a to a value. Value can be scalar or list.  (a[key] = value)
         if len(key) == 1:
             a[key[0]] = value
@@ -164,7 +160,7 @@ class LLOps:
             LLOps.f_setitem(a[key[0]], key[1:], value)
 
     @staticmethod
-    def f_reshape_flattened(a: List[(int | float)], shape: Tuple[int]):
+    def f_reshape_flattened(a: list, shape: tuple[int]):
         # reshape a one-dimensional array (flattened) into a target format
         if len(shape) == 1:
             return a
@@ -366,25 +362,6 @@ class Tensor:
 
     def reshape(self, shape):
         return Tensor(LLOps.f_reshape_flattened(LLOps.f_flatten(self.elems), shape))
-
-    def reshape_old(self, shape):
-        def calc_card(a):
-            m = 1
-            card = []
-            mod = []
-            for n in reversed(a):
-                card.insert(0, m)
-                m *= n
-                mod.insert(0, m)
-            return card, mod
-
-        flat_tensor = self.flatten()
-        new_tensor = Tensor.zeros(shape)
-        for i in range(flat_tensor.shape[0]):
-            card, mod = calc_card(shape)
-            index = [(i//c)%m for c,m in zip(card, mod)]
-            new_tensor[index] = flat_tensor[i].item()
-        return new_tensor
 
 
 if __name__ == "__main__":
