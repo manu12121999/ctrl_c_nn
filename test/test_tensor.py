@@ -204,6 +204,12 @@ class TestTensorLinOps(unittest.TestCase):
         self.generic_various_shapes_test(np.add, ccm.Tensor.__add__, init2=lambda x: ccm.Tensor(x.tolist()),
                                          shapes=big_shapes_non_singleton)
 
+    def test_abs(self):
+        mat1 = np.random.randint(-10, 10, size=(1, 4, 6, 2, 1,3))
+        result_A = np.abs(mat1)
+        result_B = ccm.Tensor(mat1.tolist()).abs()
+        self.assertEqual(result_A.tolist(), result_B.tolist(), f"Tensor operation abs failed.")
+
 
 class TestTensorShapeManipulation(unittest.TestCase):
     def test_basic_slicing(self):
@@ -229,3 +235,46 @@ class TestTensorShapeManipulation(unittest.TestCase):
         self.assertEqual(tensor_np[0, 0].flatten().tolist(), tensor_ctrlc[0, 0].flatten().tolist(), f"Tensor flatten does not work.")
         self.assertEqual(tensor_np.flatten().tolist(), tensor_ctrlc.flatten().tolist(), f"Tensor flatten does not work.")
 
+    def test_basic_unsqueeze(self):
+        tensor_np = np.random.randint(0, 10, size=(3, 4, 3, 1, 2))
+        tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
+        self.assertEqual(np.expand_dims(tensor_np, 0).tolist(), tensor_ctrlc.unsqueeze(0).tolist(), f"Tensor unsqueeze dim=0 does not work.")
+        self.assertEqual(np.expand_dims(tensor_np, 1).tolist(), tensor_ctrlc.unsqueeze(1).tolist(), f"Tensor unsqueeze dim=1 does not work.")
+        self.assertEqual(np.expand_dims(tensor_np, 2).tolist(), tensor_ctrlc.unsqueeze(2).tolist(), f"Tensor unsqueeze dim=2 does not work.")
+        self.assertEqual(np.expand_dims(tensor_np, 4).tolist(), tensor_ctrlc.unsqueeze(4).tolist(), f"Tensor unsqueeze dim=4 does not work.")
+        self.assertEqual(np.expand_dims(tensor_np, 5).tolist(), tensor_ctrlc.unsqueeze(5).tolist(), f"Tensor unsqueeze dim=5 does not work.")
+
+    def test_basic_squeeze(self):
+        tensor_np = np.random.randint(0, 10, size=(1, 4, 3, 1, 2, 1))
+        tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
+        self.assertEqual(np.squeeze(tensor_np, 0).tolist(), tensor_ctrlc.squeeze(0).tolist(), f"Tensor unsqueeze dim=0 does not work.")
+        self.assertEqual(np.squeeze(tensor_np, 3).tolist(), tensor_ctrlc.squeeze(3).tolist(), f"Tensor unsqueeze dim=3 does not work.")
+        self.assertEqual(np.squeeze(tensor_np, 5).tolist(), tensor_ctrlc.squeeze(5).tolist(), f"Tensor unsqueeze dim=5 does not work.")
+
+    def test_reshape(self):
+        tensor_np = np.random.randint(0, 10, size=(5,3))
+        tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
+        self.assertEqual(tensor_np.reshape([3,5]).tolist(), tensor_ctrlc.reshape([3,5]).tolist(), f"Tensor reshape 5,3 to 3,5 does not work.")
+        self.assertEqual(tensor_np.reshape([15]).tolist(), tensor_ctrlc.reshape([15]).tolist(), f"Tensor reshape 5,3 to 15 does not work.")
+        self.assertEqual(tensor_np.reshape([3,5,1]).tolist(), tensor_ctrlc.reshape([3,5,1]).tolist(), f"Tensor reshape 5,3 to 3,5,1 does not work.")
+        self.assertEqual(tensor_np.reshape([1,1,3,5,1]).tolist(), tensor_ctrlc.reshape([1,1,3,5,1]).tolist(), f"Tensor reshape 5,3 to 3,5,1 does not work.")
+
+    def test_setitem(self):
+        tensor_np = np.zeros((5, 10))
+        tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
+
+        tensor_np[(3, 2)] = 1
+        tensor_ctrlc[(3, 2)] = 1
+        self.assertEqual((tensor_np).tolist(), (tensor_ctrlc).tolist(), f"Tensor setitem scalar does not work.")
+
+        tensor_np[1, 5] = -1
+        tensor_ctrlc[1, 5] = -1
+        self.assertEqual((tensor_np).tolist(), (tensor_ctrlc).tolist(), f"Tensor setitem scalar does not work.")
+
+        tensor_np[1] = np.ones((10))
+        tensor_ctrlc[1] = ccm.Tensor.ones((10))
+        self.assertEqual((tensor_np).tolist(), (tensor_ctrlc).tolist(), f"Tensor setitem array does not work.")
+
+        tensor_np[0, 3:5] = np.ones((2,))
+        tensor_ctrlc[0, 3:5] = ccm.Tensor.ones((2,))
+        self.assertEqual((tensor_np).tolist(), (tensor_ctrlc).tolist(), f"Tensor setitem array does not work.")

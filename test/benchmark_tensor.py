@@ -1,24 +1,30 @@
 import operator
 import time
 import numpy as np
-import torch
+try:
+    import torch
+except ImportError:
+    torch = None
 import matplotlib.pyplot as plt
 
 from ctrl_c_nn import Tensor, LLOps
+
 
 matmul_shapes = [
     (32, 32),
     (64, 64),
     (128, 128),
     (256, 256),
+    (512, 512),
 ]
 
 
 add_shapes = [
+    (10, 100),
     (100, 100),
+    (100, 1000),
     (1000, 1000),
-    (1000, 25600),
-    (25600, 1000),
+    (1000, 10000),
 ]
 
 
@@ -32,12 +38,14 @@ def plot_lists(**kwargs):
         if k == "title":
             plt.title(v)
         else:
-            plt.plot(v, label=k, marker='o')
+            x = [shape[0] for shape in matmul_shapes]
+            plt.plot(x, v, label=k, marker='o')
 
     plt.yscale('log')
-
-    plt.xlabel("Index")
-    plt.ylabel("Values (Log Scale)")
+    plt.xscale('log')
+    plt.ylim(1e-4, 1e2)
+    plt.xlabel("Matrix Size")
+    plt.ylabel("Time (Log Scale)")
 
     plt.legend()
 
@@ -49,8 +57,8 @@ class BenchmarkTensor:
         results = []
 
         for i in range(len(shapes)):
-            a = init(np.random.randint(low=0, high=10, size=shapes[i]))
-            b = init(np.random.randint(low=0, high=10, size=shapes[i]))
+            a = init(np.random.randint(low=0, high=1000, size=shapes[i]))
+            b = init(np.random.randint(low=0, high=1000, size=shapes[i]))
 
             time_start = time.time()
             result = func(a, b)
@@ -61,26 +69,28 @@ class BenchmarkTensor:
 
     def test_matmul_various_shapes(self):
         results_np = self.generic_various_shapes_test(np.matmul, lambda x: x, matmul_shapes)
-        results_torch = self.generic_various_shapes_test(torch.matmul, lambda x: torch.tensor(x), matmul_shapes)
-        results_ctrlc = self.generic_various_shapes_test(LLOps.f_matmul_2dim, lambda x: x.tolist(), matmul_shapes)
-
         print("numpy", print_format(results_np))
+        results_torch = self.generic_various_shapes_test(torch.matmul, lambda x: torch.tensor(x), matmul_shapes) if torch else results_np
         print("torch", print_format(results_torch))
+        results_ctrlc = self.generic_various_shapes_test(LLOps.f_matmul_2d, lambda x: x.tolist(), matmul_shapes)
         print("ctrl_c", print_format(results_ctrlc))
+        results_ctrlc_multiproc = self.generic_various_shapes_test(LLOps.f_matmul_2d_multiprocess, lambda x: x.tolist(), matmul_shapes)
+        print("ctrlc_mp", print_format(results_ctrlc_multiproc))
+
         print("MATMUL slower than numpy",  np.array(results_ctrlc) / results_np, "on average", np.mean(np.array(results_ctrlc) / results_np))
-        plot_lists(title="MATMUL", numpy=results_np, torch=results_torch, ctrl_c=results_ctrlc)
+        plot_lists(title="MATMUL", torch=results_torch, numpy=results_np, ctrl_c=results_ctrlc, results_ctrlc_multiproc=results_ctrlc_multiproc)
         plt.show()
 
     def test_add_various_shapes(self):
         results_np = self.generic_various_shapes_test(np.add, lambda x: x, add_shapes)
-        results_torch = self.generic_various_shapes_test(torch.add, lambda x: torch.tensor(x), add_shapes)
-        results_ctrlc = self.generic_various_shapes_test(lambda x, y: LLOps.f_operator(x,y,operator.add), lambda x: x.tolist(), add_shapes)
-
         print("numpy", print_format(results_np))
+        results_torch = self.generic_various_shapes_test(torch.add, lambda x: torch.tensor(x), add_shapes) if torch else results_np
         print("torch", print_format(results_torch))
+        results_ctrlc = self.generic_various_shapes_test(lambda x, y: LLOps.f_operator_same_size(x, y, operator.add), lambda x: x.tolist(), add_shapes)
         print("ctrl_c", print_format(results_ctrlc))
+
         print("ADD slower than numpy",  np.array(results_ctrlc) / results_np, "on average", np.mean(np.array(results_ctrlc) / results_np))
-        plot_lists(title="ADD", numpy=results_np, torch=results_torch, ctrl_c=results_ctrlc)
+        plot_lists(title="ADD", torch=results_torch, numpy=results_np, ctrl_c=results_ctrlc)
 
 
 if __name__ == '__main__':
