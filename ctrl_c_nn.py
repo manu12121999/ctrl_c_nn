@@ -182,6 +182,32 @@ class LLOps:
     def f_advanced_indexing_1d(a: (list, tuple), b: (list, tuple)):
         return tuple([a[b_i] for b_i in b])
 
+    @staticmethod
+    def f_reduction_sum(a, dim, shape):
+        if dim == 0:
+            if len(shape) == 1:
+                return sum(a)
+            else:
+                zeros = LLOps.fill(shape[1:], 0)
+                for a_i in a:
+                    zeros = LLOps.f_operator_same_size(zeros, a_i, operator.add)
+                return zeros
+        else:
+            return [LLOps.f_reduction_sum(a_i, dim-1, shape[1:]) for a_i in a]
+
+    @staticmethod
+    def f_reduction_prod(a, dim, shape):
+        if dim == 0:
+            if len(shape) == 1:
+                return math.prod(a)
+            else:
+                inter = LLOps.fill(shape[1:], 1)
+                for a_i in a:
+                    inter = LLOps.f_operator_same_size(inter, a_i, operator.mul)
+                return inter
+        else:
+            return [LLOps.f_reduction_prod(a_i, dim-1, shape[1:]) for a_i in a]
+
 
 class Tensor:
     # Wrapper to use linalg operations on lists (of lists) (e.g. matmuls) in a nicer way
@@ -232,7 +258,7 @@ class Tensor:
     def random_float(shape, min=-1.0, max=1.0):
         if isinstance(shape, int):
             shape = (shape, )
-        return LLOps.fill_callable(shape, lambda: random.uniform(min, max))
+        return Tensor(LLOps.fill_callable(shape, lambda: random.uniform(min, max)))
 
     @staticmethod
     def random_int(shape, min=0, max=10):
@@ -359,6 +385,25 @@ class Tensor:
     def __abs__(self):
         return self.abs()
 
+    def clamp(self, low, high):
+        if low is None:
+            return Tensor(LLOps.f_unary_op(self.elems, lambda x: min(x, high)))
+        elif high is None:
+            return Tensor(LLOps.f_unary_op(self.elems, lambda x: max(x, low)))
+        else:
+            return Tensor(LLOps.f_unary_op(self.elems, lambda x: max(min(x, high), low)))
+
+    def sum(self, dim):
+        assert isinstance(dim, int) is True
+        return Tensor(LLOps.f_reduction_sum(self.elems, dim, self.shape))
+
+    def prod(self, dim):
+        assert isinstance(dim, int) is True
+        return Tensor(LLOps.f_reduction_prod(self.elems, dim, self.shape))
+
+    def apply(self, func):
+        return Tensor(LLOps.f_unary_op(self.elems, func))
+
     ######################
     # Shape Manipulation
     #####################
@@ -415,16 +460,129 @@ class Tensor:
         return new_tensor
 
 
+class nn:
+    class Module:
+        def __init__(self):
+            self.cache = None
+
+        def __call__(self, x: Tensor):
+            return self.forward(x)
+
+        def forward(self, x: Tensor):
+            pass
+
+        def backward(self, dout: Tensor):
+            pass
+
+    class RELU(Module):
+        def forward(self, x: Tensor):
+            self.cache = x
+            return x.apply(lambda v: max(0, v))
+
+        def backward(self, dout: Tensor):
+            x = self.cache
+            mask = x.apply(lambda v: 1 if v >= 0 else 0)
+            dx = dout * mask
+            return dx
+
+    class LeakyRELU(Module):
+        def forward(self, x: Tensor):
+            self.cache = x
+            return x.apply(lambda v: 0.1*v if v < 0 else v)
+
+        def backward(self, dout: Tensor):
+            x = self.cache
+            mask = x.apply(lambda v: 1 if v >= 0 else 0.1)
+            dx = dout * mask
+            return dx
+
+    class Linear(Module):
+        def __init__(self, in_features, out_features):
+            super().__init__()
+            init_value_min = -0.1
+            init_value_max = 0.1
+            self.w = Tensor.random_float(shape=(out_features, in_features), min=init_value_min, max=init_value_max)
+            self.b = Tensor.random_float(shape=(out_features, ), min=init_value_min, max=init_value_max)
+
+            self.dw = None
+            self.db = None
+
+        def forward(self, x: Tensor):
+            # shapes x: (B, C_in) , w.T: (C_in, C_out)  b: (C_out)
+            self.cache = x
+            return x @ self.w.T + self.b
+
+        def backward(self, dout: Tensor):
+            x = self.cache
+
+            # grad wrt weights
+            self.dw = x.T @ dout
+
+            # grad wrt bias
+            self.db = dout.sum(dim=0)
+
+            # grad wrt x
+            dx = (dout @ self.w).reshape(x.shape)
+            return dx
+
+    class Sequential(Module):
+        def __init__(self, *modules):
+            super().__init__()
+            self.modules = modules
+
+        def forward(self, x: Tensor):
+            for module in self.modules:
+                x = module(x)
+            return x
+
+        def backward(self, dout: Tensor):
+            for module in reversed(self.modules):
+                dout = module.backward(dout)
+            return dout
+
+    class Conv2d(Module):
+        def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride=1, padding=0):
+            super().__init__()
+            init_value_min = - 0.1
+            init_value_max = 0.1
+            self.stride = stride
+            self.padding = padding
+            self.kernel_size = kernel_size
+            self.out_channels = out_channels
+            self.w = Tensor.random_float(shape=(out_channels, in_channels, kernel_size, kernel_size), min=init_value_min, max=init_value_max)
+            self.b = Tensor.random_float(shape=(out_channels, ), min=init_value_min, max=init_value_max)
+
+        def forward(self, x: Tensor):
+            #  shapes x: (B, C_in, H, W)    w: (C_out, C_in, K, K)    b: (C_Out)    out: (B, C_out, H/s, W/s)
+            B, C_in, H, W = x.shape
+            C_out = self.out_channels
+            K = self.kernel_size
+            H_out = (H - 2 * self.padding) / self.stride
+            W_out = (W - 2 * self.padding) / self.stride
+            result = Tensor.zeros((B, C_out, H_out, W_out))
+            for u in range(self.padding, H - self.padding, self.stride):
+                for v in range(self.padding, H - self.padding, self.stride):
+                    x_chunk = x[:, :, u:u+K, v:v+K].reshape((B,C_in, K*K))  # reshaped from B, C_in, K, K
+                    result[:, :, u, v] = x_chunk @ self.w + self.b
+                    #                   (B,C_in, K,K) @( C_out, C_in, K, K) + ( C_out)
+                    # TODO complete
+
+    # missing: weight_init, ConvTranspose2d, MaxPool2d, AvgPool2d, Softmax, BatchNorm2d, InstanceNorm2d, LayerNorm2d, Losses
+
+
 if __name__ == "__main__":
+
     a_list = [[2, 3],
               [32, -21],
               [32, 21]]  # 3,2
 
     a_reshaped = Tensor(a_list).reshape((2, 3))
+
+    print(a_reshaped.sum(1))
     print(a_reshaped.shape)
     print(a_reshaped.abs())
 
-    print(a_reshaped.permute((1,0)))
+    print(a_reshaped.permute((1, 0)))
 
     rand_tensor = Tensor.random_float((2, 4, 8, 2), 0.0, 1.2)
     print(rand_tensor)
@@ -439,3 +597,13 @@ if __name__ == "__main__":
     c_tensor = a_tensor@b_tensor  # shape (2, 4, 8, 8)
     d_tensor = c_tensor[0, 2:, :, :1] + b_tensor.unsqueeze(2)  # shape (2,8,1)
     print(d_tensor)
+
+    # nn
+    model = nn.Sequential(
+        nn.Linear(20, 128),
+        nn.RELU(),
+        nn.Linear(128, 10),
+        nn.LeakyRELU(),
+    )
+    imput_tensor = Tensor.random_float((8, 20))
+    print("output", model(imput_tensor))

@@ -112,22 +112,19 @@ class TestTensorLinOps(unittest.TestCase):
                 mat2 = np.random.randint(0, 10, shapes[j])
 
                 mat1_B, mat2_B = init2(mat1), init2(mat2)
-                print("MAT A", mat1_B)
-                print("MAT B", mat2_B)
                 try:
                     result_A = func1(mat1, mat2).tolist()
-                    print(f"RES1", result_A)
                 except (ValueError, AssertionError, RuntimeError):
-                    print("No RES1")
                     result_A = None
                 try:
                     result_B = func2(mat1_B, mat2_B).tolist()
-                    print("RES2", result_B)
                 except (ValueError, AssertionError, RuntimeError):
-                    print("No RES2")
                     result_B = None
 
-                self.assertEqual(result_A, result_B, f"Tensor operation {func2} failed for shapes {mat1.shape} and {mat2.shape}. Elemes {mat1} and {mat2}")
+                self.assertEqual(result_A, result_B,
+                                 f"Tensor operation {func2} failed for shapes {mat1.shape} and {mat2.shape}. \n "
+                                 + f"Input matrices \n {mat1} \n and \n {mat2}.\n "
+                                 +  f"Results are numpy: \n {result_A} \n and ctrl_c_nn \n {result_B} ")
 
     @unittest.skip
     def test_matmul_various_shaped_sanity(self):
@@ -204,11 +201,33 @@ class TestTensorLinOps(unittest.TestCase):
         self.generic_various_shapes_test(np.add, ccm.Tensor.__add__, init2=lambda x: ccm.Tensor(x.tolist()),
                                          shapes=big_shapes_non_singleton)
 
+class TestTensorUnaryAndReductions(unittest.TestCase):
+
     def test_abs(self):
-        mat1 = np.random.randint(-10, 10, size=(1, 4, 6, 2, 1,3))
+        mat1 = np.random.randint(-10, 10, size=(1, 4, 6, 2, 1, 3))
         result_A = np.abs(mat1)
         result_B = ccm.Tensor(mat1.tolist()).abs()
         self.assertEqual(result_A.tolist(), result_B.tolist(), f"Tensor operation abs failed.")
+
+    def test_sum(self):
+        mat1 = np.random.randint(-10, 10, size=(1, 2, 4, 6, 1, 3, 1))
+        self.assertEqual(mat1.sum(0).tolist(), ccm.Tensor(mat1.tolist()).sum(0).tolist(), f"Tensor sum(0) failed.")
+        self.assertEqual(mat1.sum(1).tolist(), ccm.Tensor(mat1.tolist()).sum(1).tolist(), f"Tensor sum(1) failed.")
+        self.assertEqual(mat1.sum(2).tolist(), ccm.Tensor(mat1.tolist()).sum(2).tolist(), f"Tensor sum(2) failed.")
+        self.assertEqual(mat1.sum(3).tolist(), ccm.Tensor(mat1.tolist()).sum(3).tolist(), f"Tensor sum(3) failed.")
+        self.assertEqual(mat1.sum(4).tolist(), ccm.Tensor(mat1.tolist()).sum(4).tolist(), f"Tensor sum(4) failed.")
+        self.assertEqual(mat1.sum(5).tolist(), ccm.Tensor(mat1.tolist()).sum(5).tolist(), f"Tensor sum(5) failed.")
+        self.assertEqual(mat1.sum(6).tolist(), ccm.Tensor(mat1.tolist()).sum(6).tolist(), f"Tensor sum(6) failed.")
+
+    def test_prod(self):
+        mat1 = np.random.randint(-10, 10, size=(1, 2, 4, 6, 1, 3, 1))
+        self.assertEqual(mat1.prod(0).tolist(), ccm.Tensor(mat1.tolist()).prod(0).tolist(), f"Tensor prod(0) failed.")
+        self.assertEqual(mat1.prod(1).tolist(), ccm.Tensor(mat1.tolist()).prod(1).tolist(), f"Tensor prod(1) failed.")
+        self.assertEqual(mat1.prod(2).tolist(), ccm.Tensor(mat1.tolist()).prod(2).tolist(), f"Tensor prod(2) failed.")
+        self.assertEqual(mat1.prod(3).tolist(), ccm.Tensor(mat1.tolist()).prod(3).tolist(), f"Tensor prod(3) failed.")
+        self.assertEqual(mat1.prod(4).tolist(), ccm.Tensor(mat1.tolist()).prod(4).tolist(), f"Tensor prod(4) failed.")
+        self.assertEqual(mat1.prod(5).tolist(), ccm.Tensor(mat1.tolist()).prod(5).tolist(), f"Tensor prod(5) failed.")
+        self.assertEqual(mat1.prod(6).tolist(), ccm.Tensor(mat1.tolist()).prod(6).tolist(), f"Tensor prod(6) failed.")
 
 
 class TestTensorShapeManipulation(unittest.TestCase):
