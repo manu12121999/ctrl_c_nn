@@ -1,5 +1,7 @@
 # Ctrl_C_NN
-Dependency-free neural network inference framework in a single file
+Dependency-free neural network inference framework in a single file.
+
+CURRENTLY IN DEVELOPMENT: NOT IN A USABLE STATE YET
 
 ## What is it for
 Inference with simple neural networks where installing dependencies is not possible. This project is and will be dependency-free and has the most open open-source license. Whatever you need it for, just copy the single .py file into your project, and you can run an already-trained neural network. 
@@ -8,20 +10,20 @@ Inference with simple neural networks where installing dependencies is not possi
 Since it is written 100% in Python, its performance is terrible compared to PyTorch or numpy-based frameworks. It's not designed for the training of neural networks but to load and run simple Pytorch neural networks.
 
 ## WIP
-| Description                              | Status                 |
-|------------------------------------------|------------------------|
-| Base Tensor class                        | :white_check_mark:     |
-| Tensor operations (+, *, @)              | :white_check_mark:     |
-| Tensor Broadcasting                      | :white_check_mark:     |
-| Tensor Shape Manipulation (e.g. reshape) | :white_check_mark:     |
-| Simple Layers and Non-linearities        | :white_check_mark:     |
-| Forward pass of simple NN                | :large_orange_diamond: |
-| Backward pass of simple NN               | :large_orange_diamond: |
-| Convolutional Layers                     | :x:                    |
-| Reading pth files                        | :x:                    |
-| Basic Image I/O                          | :x:                    |
-| ...                                      | :x:                    |
-| ...                                      | :x:                    |
+| Description                              | Status                     |
+|------------------------------------------|----------------------------|
+| Base Tensor class                        | :white_check_mark:         |
+| Tensor operations (+, *, @)              | :white_check_mark:         |
+| Tensor Broadcasting                      | :white_check_mark:         |
+| Tensor Shape Manipulation (e.g. reshape) | :white_check_mark:         |
+| Simple Layers and Non-linearities        | :white_check_mark:         |
+| Forward pass of simple NN                | :large_orange_diamond: WIP |
+| Backward pass of simple NN               | :large_orange_diamond: WIP |
+| Convolutional Layers                     | :x:                        |
+| Reading pth files                        | :x:                        |
+| Basic Image I/O                          | :x:                        |
+| ...                                      | :x:                        |
+| ...                                      | :x:                        |
 
 
 ## Sample Usage Tensor

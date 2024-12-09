@@ -1,9 +1,14 @@
+__author__ = "Manuel Vogel"
+__version__ = "0.0.1"
+__website__ = "https://github.com/manu12121999/ctrl_c_nn"
+__original_source__ = "https://github.com/manu12121999/ctrl_c_nn/blob/main/ctrl_c_nn.py"
+__email__ = "manu12121999@gmail.com"
+
 import random
 import sys
 import math
 import operator
 from multiprocessing import Pool
-import itertools
 
 sumprod = math.sumprod if sys.version_info >= (3, 12) else lambda p, q: sum([p_i*q_i for p_i, q_i in zip(p, q)])
 
