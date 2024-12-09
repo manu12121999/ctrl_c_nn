@@ -41,7 +41,7 @@ class LLOps:
         # Add a scalar to a list (of lists). Other operations than add are supported too
         if isinstance(a, (int, float)):
             return op(a, b)
-        if isinstance(a[0], (int, float)):
+        elif isinstance(a[0], (int, float)):
             return [op(a_i, b) for a_i in a]
         else:
             return [LLOps.f_operator_scalar(a_i, b, op) for a_i in a]
@@ -293,9 +293,9 @@ class Tensor:
         if isinstance(b, Tensor):
             # print(f"add/mul shapes {a.shape} and {b.shape}")
             if a.shape == ():
-                return LLOps.f_operator_scalar(a.elems, b[0], op)
+                return LLOps.f_operator_scalar(b.elems, a.item(), op)
             elif b.shape == ():
-                return LLOps.f_operator_scalar(a.elems[0], b, op)
+                return LLOps.f_operator_scalar(a.elems, b.item(), op)
             elif a.shape == b.shape:
                 return LLOps.f_operator_same_size(a.elems, b.elems, op)
             elif a.ndim == b.ndim:
@@ -560,6 +560,10 @@ class nn:
             dx = (dout @ self.w).reshape(x.shape)
             return dx
 
+        def update(self, lr):
+            self.w -= self.dw.T * lr
+            self.b -= self.db * lr
+
     class Sequential(Module):
         skip_cache = {}
         skip_grad_cache = {}
@@ -578,6 +582,11 @@ class nn:
                 dout = module.backward(dout)
             return dout
 
+        def update(self, lr):
+            for module in self.modules:
+                if hasattr(module, 'update'):
+                    module.update(lr)
+
     class SkipStart(Module):
         def __init__(self, name):
             super().__init__()
@@ -588,7 +597,7 @@ class nn:
             return x
 
         def backward(self, dout: Tensor):
-            return dout + nn.Sequential.skip_cache[self.name]
+            return dout + nn.Sequential.skip_grad_cache[self.name]
 
     class SkipEnd(Module):
         def __init__(self, name):
@@ -709,5 +718,6 @@ if __name__ == "__main__":
 
     dout = loss_fn.backward(loss)
     dout = model.backward(dout)
+    model.update(lr=0.01)
 
     print("grad dx/dd", dout)

@@ -10,16 +10,18 @@ from ctrl_c_nn import Tensor, nn
 
 x = Tensor.random_float(shape=(16, 256))
 
-cache = {}
-b = {}
 model = nn.Sequential(
-                nn.SkipStart("1", cache, b),
-                nn.Linear(256, 256),
-                nn.RELU(),
-                nn.SkipEnd("1", cache, b),
+                nn.SkipStart("a"),
                 nn.Linear(256, 512),
-                nn.LeakyRELU(),
-                nn.Linear(512, 4),
+                nn.ReLU(),
+                nn.SkipStart("b"),
+                nn.Linear(512, 512),
+                nn.LeakyReLU(),
+                nn.SkipEnd("b"),
+                nn.Linear(512, 256),
+                nn.ReLU(),
+                nn.SkipEnd("a"),
+                nn.Linear(256, 3)
     )
 
 
