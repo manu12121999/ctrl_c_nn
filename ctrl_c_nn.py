@@ -3,6 +3,7 @@ import sys
 import math
 import operator
 from multiprocessing import Pool
+import itertools
 
 sumprod = math.sumprod if sys.version_info >= (3, 12) else lambda p, q: sum([p_i*q_i for p_i, q_i in zip(p, q)])
 
@@ -38,6 +39,8 @@ class LLOps:
     @staticmethod
     def f_operator_scalar(a: list, b: (int, float), op):
         # Add a scalar to a list (of lists). Other operations than add are supported too
+        if isinstance(a, (int, float)):
+            return op(a, b)
         if isinstance(a[0], (int, float)):
             return [op(a_i, b) for a_i in a]
         else:
@@ -50,6 +53,14 @@ class LLOps:
             return [op(a_i, b_i) for a_i, b_i in zip(a, b)]
         else:
             return [LLOps.f_operator_same_size(a_i, b_i, op) for a_i, b_i in zip(a, b)]
+
+    @staticmethod
+    def f_add_same_size_performance(a: list, b: list):
+        # Add two list (of lists). Only used to test the performance of different implementations
+        if isinstance(a[0], (int, float)):
+            return [a_i + b_i for a_i, b_i in zip(a, b)]
+        else:
+            return [LLOps.f_add_same_size_performance(a_i, b_i) for a_i, b_i in zip(a, b)]
 
     @staticmethod
     def f_transpose_2d(a: list):
@@ -79,8 +90,8 @@ class LLOps:
         # (I,K) @ (K, J)  -> (I,J)
         I, K, K2, J = len(a), len(a[0]), len(b), len(b[0])
         assert K == K2
-        with Pool(8) as p:
-            return p.starmap(LLOps.f_vec_times_mat, ((a_i, b) for a_i in a), chunksize=max(1, I//8))
+        with Pool(24) as p:
+            return p.starmap(LLOps.f_vec_times_mat, ((a_i, b) for a_i in a), chunksize=max(1, I//24))
 
     @staticmethod
     def f_matmul_2d_old(a: list, b: list):
@@ -229,7 +240,10 @@ class Tensor:
         self.shape = tuple(shape_list)
 
     def __repr__(self):
-        return f"Tensor of shape {self.shape}.  Elements ({self.elems})"
+        elems_str = str(self.elems)
+        if len(elems_str) > 200:
+            elems_str = elems_str[:90] + "  ...  " + elems_str[-90:]
+        return f"Tensor of shape {self.shape}.  Elements ({elems_str})"
 
     ######################
     # Construction Methods
@@ -278,7 +292,11 @@ class Tensor:
         # input tensor output list of list
         if isinstance(b, Tensor):
             # print(f"add/mul shapes {a.shape} and {b.shape}")
-            if a.shape == b.shape:
+            if a.shape == ():
+                return LLOps.f_operator_scalar(a.elems, b[0], op)
+            elif b.shape == ():
+                return LLOps.f_operator_scalar(a.elems[0], b, op)
+            elif a.shape == b.shape:
                 return LLOps.f_operator_same_size(a.elems, b.elems, op)
             elif a.ndim == b.ndim:
                 if a.shape[0] == 1:
@@ -384,6 +402,14 @@ class Tensor:
     def __abs__(self):
         return self.abs()
 
+    def __pow__(self, num):
+        if num == 2:
+            return Tensor(LLOps.f_operator_same_size(self.elems, self.elems, operator.mul))
+        elif isinstance(num, int):
+            return self.apply(lambda x: x**num)
+        else:
+            return self.apply(lambda x: math.pow(x, num))
+
     def clamp(self, low, high):
         if low is None:
             return Tensor(LLOps.f_unary_op(self.elems, lambda x: min(x, high)))
@@ -392,13 +418,22 @@ class Tensor:
         else:
             return Tensor(LLOps.f_unary_op(self.elems, lambda x: max(min(x, high), low)))
 
-    def sum(self, dim):
-        assert isinstance(dim, int) is True
-        return Tensor(LLOps.f_reduction_sum(self.elems, dim, self.shape))
+    def sum(self, dim=None):
+        if dim is None:
+            inter = self.elems
+            for i in range(self.ndim):
+                inter = LLOps.f_reduction_sum(inter, 0, self.shape[i:])
+            return Tensor(inter)
+        else:
+            assert isinstance(dim, int) is True
+            return Tensor(LLOps.f_reduction_sum(self.elems, dim, self.shape))
 
     def prod(self, dim):
         assert isinstance(dim, int) is True
         return Tensor(LLOps.f_reduction_prod(self.elems, dim, self.shape))
+
+    def log(self):
+        return Tensor(LLOps.f_unary_op(self.elems, math.log))
 
     def apply(self, func):
         return Tensor(LLOps.f_unary_op(self.elems, func))
@@ -461,6 +496,7 @@ class Tensor:
 
 class nn:
     class Module:
+
         def __init__(self):
             self.cache = None
 
@@ -468,12 +504,12 @@ class nn:
             return self.forward(x)
 
         def forward(self, x: Tensor):
-            pass
+            raise NotImplementedError
 
         def backward(self, dout: Tensor):
-            pass
+            raise NotImplementedError
 
-    class RELU(Module):
+    class ReLU(Module):
         def forward(self, x: Tensor):
             self.cache = x
             return x.apply(lambda v: max(0, v))
@@ -484,7 +520,7 @@ class nn:
             dx = dout * mask
             return dx
 
-    class LeakyRELU(Module):
+    class LeakyReLU(Module):
         def forward(self, x: Tensor):
             self.cache = x
             return x.apply(lambda v: 0.1*v if v < 0 else v)
@@ -525,6 +561,9 @@ class nn:
             return dx
 
     class Sequential(Module):
+        skip_cache = {}
+        skip_grad_cache = {}
+
         def __init__(self, *modules):
             super().__init__()
             self.modules = modules
@@ -540,32 +579,57 @@ class nn:
             return dout
 
     class SkipStart(Module):
-        def __init__(self, name, skip_cache, skip_grads):
+        def __init__(self, name):
             super().__init__()
             self.name = name
-            self.skip_cache = skip_cache
-            self.skip_grads = skip_grads
 
         def forward(self, x: Tensor):
-            self.skip_cache[self.name] = x
+            nn.Sequential.skip_cache[self.name] = x
             return x
 
         def backward(self, dout: Tensor):
-            raise NotImplementedError
+            return dout + nn.Sequential.skip_cache[self.name]
 
     class SkipEnd(Module):
-        def __init__(self, name, skip_cache, skip_grads):
+        def __init__(self, name):
             super().__init__()
             self.name = name
-            self.skip_cache = skip_cache
-            self.skip_grads = skip_grads
 
         def forward(self, x: Tensor):
-            return x + self.skip_cache.pop(self.name)
+            return x + nn.Sequential.skip_cache.pop(self.name)
 
         def backward(self, dout: Tensor):
-            raise NotImplementedError
+            nn.Sequential.skip_grad_cache[self.name] = dout
+            return dout
 
+    class AbstactLoss:
+        def __init__(self):
+            self.cache = None
+
+        def __call__(self, input: Tensor, target: Tensor):
+            return self.forward(input, target)
+
+    class MSELoss(AbstactLoss):
+        def forward(self, input: Tensor, target: Tensor):
+            inv_size = 1.0 / math.prod(input.shape)
+            diff = input - target
+            self.cache = inv_size, diff
+            return (diff ** 2).sum() * inv_size
+
+        def backward(self, dout: Tensor):
+            inv_size, diff = self.cache
+            dout = 2 * diff * inv_size * dout
+            return dout
+
+    class BCELoss(AbstactLoss):
+        def forward(self, input: Tensor, target: Tensor):
+            inv_size = 1.0 / math.prod(input.shape)
+            self.cache = input, target, inv_size
+            return -inv_size * (input * target.log() + (1-input) * (1-target).log())
+
+        def backward(self, dout: Tensor):
+            input, target, inv_size = self.cache
+            return inv_size * (target - input) * dout
 
     class Conv2d(Module):
         def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride=1, padding=0):
@@ -604,10 +668,10 @@ if __name__ == "__main__":
               [32, 21]]  # 3,2
 
     a_reshaped = Tensor(a_list).reshape((2, 3))
-
-    print(a_reshaped.sum(1))
-    print(a_reshaped.shape)
-    print(a_reshaped.abs())
+    print("SUM", a_reshaped.sum())
+    print("SUM DIM 1", a_reshaped.sum(1))
+    print("SHAPE", a_reshaped.shape)
+    print("ABS", a_reshaped.abs())
 
     print(a_reshaped.permute((1, 0)))
 
@@ -628,9 +692,22 @@ if __name__ == "__main__":
     # nn
     model = nn.Sequential(
         nn.Linear(20, 128),
-        nn.RELU(),
+        nn.ReLU(),
+        nn.SkipStart("a"),
+        nn.Linear(128, 128),
+        nn.ReLU(),
+        nn.SkipEnd("a"),
         nn.Linear(128, 10),
-        nn.LeakyRELU(),
+        nn.LeakyReLU(),
     )
-    imput_tensor = Tensor.random_float((8, 20))
-    print("output", model(imput_tensor))
+    input_tensor = Tensor.random_float((8, 20))
+    output_tensor = model(input_tensor)
+    target_tensor = Tensor.ones(output_tensor.shape)
+    loss_fn = nn.MSELoss()
+    loss = loss_fn(output_tensor, target_tensor)
+    print("output", output_tensor, "loss", loss)
+
+    dout = loss_fn.backward(loss)
+    dout = model.backward(dout)
+
+    print("grad dx/dd", dout)
