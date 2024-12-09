@@ -6,7 +6,6 @@ from multiprocessing import Pool
 
 sumprod = math.sumprod if sys.version_info >= (3, 12) else lambda p, q: sum([p_i*q_i for p_i, q_i in zip(p, q)])
 
-
 class LLOps:
     """
     Class for (recursive) functional operations on lists of lists
@@ -539,6 +538,34 @@ class nn:
             for module in reversed(self.modules):
                 dout = module.backward(dout)
             return dout
+
+    class SkipStart(Module):
+        def __init__(self, name, skip_cache, skip_grads):
+            super().__init__()
+            self.name = name
+            self.skip_cache = skip_cache
+            self.skip_grads = skip_grads
+
+        def forward(self, x: Tensor):
+            self.skip_cache[self.name] = x
+            return x
+
+        def backward(self, dout: Tensor):
+            raise NotImplementedError
+
+    class SkipEnd(Module):
+        def __init__(self, name, skip_cache, skip_grads):
+            super().__init__()
+            self.name = name
+            self.skip_cache = skip_cache
+            self.skip_grads = skip_grads
+
+        def forward(self, x: Tensor):
+            return x + self.skip_cache.pop(self.name)
+
+        def backward(self, dout: Tensor):
+            raise NotImplementedError
+
 
     class Conv2d(Module):
         def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride=1, padding=0):
