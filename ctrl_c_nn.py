@@ -7,6 +7,7 @@ import itertools
 
 sumprod = math.sumprod if sys.version_info >= (3, 12) else lambda p, q: sum([p_i*q_i for p_i, q_i in zip(p, q)])
 
+
 class LLOps:
     """
     Class for (recursive) functional operations on lists of lists
@@ -662,7 +663,7 @@ class nn:
             result = Tensor.zeros((B, C_out, H_out, W_out))
             for u in range(self.padding, H - self.padding, self.stride):
                 for v in range(self.padding, H - self.padding, self.stride):
-                    x_chunk = x[:, :, u:u+K, v:v+K].reshape((B,C_in, K*K))  # reshaped from B, C_in, K, K
+                    x_chunk = x[:, :, u:u+K, v:v+K].reshape((B, C_in, K*K))  # reshaped from B, C_in, K, K
                     result[:, :, u, v] = x_chunk @ self.w + self.b
                     #                   (B,C_in, K,K) @( C_out, C_in, K, K) + ( C_out)
                     # TODO complete

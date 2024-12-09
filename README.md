@@ -38,6 +38,7 @@ g = e.permute((3,0,2,1)) # shape (1, 1, 4, 2)
 ```
 
 ## Sample Usage NN
+```python
 from ctrl_c_nn import nn, Tensor
 
 model = nn.Sequential(
@@ -60,9 +61,9 @@ for i in range(2000):
     output_tensor = model(input_tensor)
     loss = loss_fn(output_tensor, target_tensor)
 
-    print("loss", loss.item(), "          iteration", i)
+    print("loss", loss.item(), " iteration", i)
 
     dout = loss_fn.backward(loss)
     dout = model.backward(dout)
     model.update(lr=0.001)
-
+```

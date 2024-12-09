@@ -1,5 +1,8 @@
 import unittest
 import numpy as np
+
+from ctrl_c_nn import Tensor
+
 try:
     import torch
 except ImportError:
@@ -147,6 +150,16 @@ class TestTensorLinOps(unittest.TestCase):
         result_A = mat1 * mat2
         result_B = ccm.Tensor(mat1.tolist()) * ccm.Tensor(mat2.tolist())
         self.assertEqual(result_A.tolist(), result_B.tolist(),f"Tensor operation basic mul failed.")
+
+    def test_mul_dimless_tensor(self):
+        mat1 = np.array([3, 2])
+        mat2 = np.array(2)
+        result_A = mat1 * mat2
+        result_B = ccm.Tensor(mat1.tolist()) * ccm.Tensor(mat2.tolist())
+        self.assertEqual(result_A.tolist(), result_B.tolist(), f"Tensor operation dimless mul failed.")
+        result_C = mat2 * mat1
+        result_D = ccm.Tensor(mat2.tolist()) * ccm.Tensor(mat1.tolist())
+        self.assertEqual(result_C.tolist(), result_D.tolist(), f"Tensor operation dimless mul failed.")
 
     def test_basic_matmul(self):
         mat1 = np.random.randint(0, 10, size=(400, 200))
@@ -319,3 +332,42 @@ class TestTensorShapeManipulation(unittest.TestCase):
         tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
         self.assertEqual(np.transpose(tensor_np, (4, 1, 0, 3, 5, 2)).tolist(), tensor_ctrlc.permute((4, 1, 0, 3, 5, 2)).tolist(), f"Tensor permute 6d does not work.")
 
+
+class TestTensorCreation(unittest.TestCase):
+
+    def test_create(self):
+        l1 = [[2, 1, 3], [4, 2, 1]]
+        self.assertEqual(l1, Tensor(l1).tolist(), f"Tensor create and to_list is not identical.")
+        shape = (3, 2, 1)
+        t1 = Tensor.zeros(shape)
+        t2 = Tensor.ones(shape)
+        t3 = Tensor.random_float(shape)
+        t4 = Tensor.random_int(shape)
+        t5 = Tensor.random_float(shape, min=-2, max=+2)
+        t6 = Tensor.random_int(shape, min=-2, max=+2)
+        t7 = Tensor.fill(shape, 27)
+        self.assertEqual(shape, t1.shape, f"Tensor create gives wrong shape.")
+        self.assertEqual(shape, t2.shape, f"Tensor create gives wrong shape.")
+        self.assertEqual(shape, t3.shape, f"Tensor create gives wrong shape.")
+        self.assertEqual(shape, t4.shape, f"Tensor create gives wrong shape.")
+        self.assertEqual(shape, t5.shape, f"Tensor create gives wrong shape.")
+        self.assertEqual(shape, t6.shape, f"Tensor create gives wrong shape.")
+        self.assertEqual(shape, t7.shape, f"Tensor create gives wrong shape.")
+
+    def test_create_single_int(self):
+        n1 = np.array(4)
+        t1 = Tensor(4)
+        self.assertEqual(n1.shape, t1.shape, f"Wrong shape when create tensor from int.")
+        self.assertEqual(n1.ndim, t1.ndim, f"Wrong ndim when create tensor from int.")
+
+        self.assertEqual((n1 * n1).shape, (t1 * t1).shape, f"Wrong shape when create tensor from int.")
+        self.assertEqual((n1 * n1).ndim, (t1 * t1).ndim, f"Wrong ndim when create tensor from int.")
+
+        n2 = np.array([8, 3, 4])
+        t2 = Tensor([8, 3, 4])
+
+        self.assertEqual((n1*n2).shape, (t1*t2).shape, f"Wrong shape when create tensor from int.")
+        self.assertEqual((n1*n2).ndim, (t1*t2).ndim, f"Wrong ndim when create tensor from int.")
+
+        self.assertEqual((n2*n1).shape, (t2*t1).shape, f"Wrong shape when create tensor from int.")
+        self.assertEqual((n2*n1).ndim, (t2*t1).ndim, f"Wrong ndim when create tensor from int.")
