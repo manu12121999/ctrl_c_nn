@@ -9,6 +9,7 @@ import sys
 import math
 import operator
 from multiprocessing import Pool
+import zlib
 
 sumprod = math.sumprod if sys.version_info >= (3, 12) else lambda p, q: sum([p_i*q_i for p_i, q_i in zip(p, q)])
 
@@ -676,7 +677,113 @@ class nn:
     # missing: weight_init, ConvTranspose2d, MaxPool2d, AvgPool2d, Softmax, BatchNorm2d, InstanceNorm2d, LayerNorm2d, Losses
 
 
+class ImageIO:
+
+    @staticmethod
+    def c_method(method, x, a, b, c):
+        if method == 1:
+            return x+a
+        if method == 3:
+            return x + (a + b) // 2
+        elif method == 4:
+            p = a + b - c
+            pa = abs(p - a)
+            pb = abs(p - b)
+            pc = abs(p - c)
+            Pr = a if pa <= pb and pa <= pc else b if pb <= pc else c
+            return x + Pr
+
+    @staticmethod
+    def png_decompress(data_bytes, width, height, n_channels):
+        data_bytes = zlib.decompress(data_bytes)
+        lines = []
+        last_line = [[0 for _ in range(n_channels)] for _ in range(width)]
+        for line_idx in range(height):
+            line_start = line_idx * (width * n_channels + 1)
+            line_end = (line_idx+1) * (width * n_channels + 1)
+
+            method = int.from_bytes(data_bytes[line_start:line_start + 1], "big")
+            line_flat = [int.from_bytes(data_bytes[i:i+1], "big") for i in range(line_start+1, line_end)]
+
+            line = LLOps.f_reshape_flattened(line_flat, (width, n_channels))
+
+            if method == 2:
+                line = LLOps.f_operator_same_size(line, last_line, operator.add)  # line + last_line
+                line = [[a_i_j % 256 for a_i_j in a_i] for a_i in line]           # line = line%256
+            elif method == 1 or method == 3 or method == 4:
+                for w in range(width):
+                    line[w] = [ImageIO.c_method(method,
+                                                x=line[w][c],
+                                                a=line[w-1][c] if w > 0 else 0,
+                                                b=last_line[w][c],
+                                                c=last_line[w-1][c] if w > 0 else 0) % 256
+                               for c in range(n_channels)]
+            last_line = line
+            lines.append(line)
+        return lines
+
+    @staticmethod
+    def read_png(path):
+        with open(path, "br") as f:
+            data = b''
+            width, height, bit_depth, color_type_str, color_type_bytes = None, None, None, None, None
+
+            image_bytes = f.read()
+            # header = image_bytes[:8]
+            start = 8
+            while start is not None:
+                chunk_length = int.from_bytes(image_bytes[start:start+4], byteorder="big")
+                chunk_type = image_bytes[start+4:start+8]
+                chunk_data = image_bytes[start+8:start+8+chunk_length]
+                if chunk_type == b'IHDR':
+                    width, height = int.from_bytes(chunk_data[:4], "big"), int.from_bytes(chunk_data[4:8], "big")
+                    bit_depth, color_type = int.from_bytes(chunk_data[8:9], "big"), int.from_bytes(chunk_data[9:10], "big")
+                    color_type_str = "RGB" if color_type == 2 else "GRAY" if color_type == 0 else "RGBA" if color_type == 6 else "OTHER"
+                    color_type_bytes = 3 if color_type == 2 else 1 if color_type == 0 else 4 if color_type == 6 else None
+                    assert bit_depth == 8
+
+                if chunk_type == b'IDAT':
+                    data += chunk_data
+
+                start = start + 12 + chunk_length
+
+                if chunk_type == b'IEND':
+                    start = None
+            lines = ImageIO.png_decompress(data, width, height, color_type_bytes)
+        return lines
+
+    @staticmethod
+    def save_png(path, tensor):
+        raise NotImplementedError
+        height, width, channels = tensor.shape
+        data_compressed = zlib.compress(tensor.tolist())
+        header = b'\x89PNG\r\n\x1a\n'
+
+        # IHDR
+        chunk_size = int.to_bytes(13)
+        chunk_type = b'IHDR'
+        chunk_data = ...
+        chunk_crc = ...
+
+        # IDATA
+        chunk_size = ...
+        chunk_type = b'IDATA'
+        chunk_data = ...
+        chunk_crc = ...
+
+        # IEND
+        chunk_size = int.to_bytes(0)
+        chunk_type = b'IEND'
+        chunk_data = b''
+        chunk_crc = ...
+
+
 if __name__ == "__main__":
+    try:
+        a_read = ImageIO.read_png("source.png")
+        print(Tensor(a_read))
+    except FileNotFoundError:
+        print("FILE NOT FOUND; continue")
 
     a_list = [[2, 3],
               [32, -21],
