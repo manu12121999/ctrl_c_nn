@@ -4,6 +4,7 @@ __website__ = "https://github.com/manu12121999/ctrl_c_nn"
 __original_source__ = "https://github.com/manu12121999/ctrl_c_nn/blob/main/ctrl_c_nn.py"
 __email__ = "manu12121999@gmail.com"
 
+import collections
 import pickle
 import random
 import struct
@@ -13,6 +14,7 @@ import math
 import operator
 from multiprocessing import Pool
 from zipfile import ZipFile
+
 
 sumprod = math.sumprod if sys.version_info >= (3, 12) else lambda p, q: sum([p_i*q_i for p_i, q_i in zip(p, q)])
 
@@ -240,6 +242,9 @@ class Tensor:
         self.shape = []
         self._calc_shape_and_dims()
 
+    def replace(self, new_tensor):
+        self.__init__(new_tensor.elems)
+
     def _calc_shape_and_dims(self):
         shape_list = []
         a = self.elems
@@ -291,6 +296,7 @@ class Tensor:
 
     @staticmethod
     def stack(tensor_list):
+
         Tensor([t.elems for t in tensor_list])
 
     ########################
@@ -428,15 +434,26 @@ class Tensor:
         else:
             return Tensor(LLOps.f_unary_op(self.elems, lambda x: max(min(x, high), low)))
 
-    def sum(self, dim=None):
-        if dim is None:
+    def sum(self, dims=None):
+        if isinstance(dims, int):
+            return Tensor(LLOps.f_reduction_sum(self.elems, dims, self.shape))
+        else:  # iterable (list, tuple) or None
             inter = self.elems
-            for i in range(self.ndim):
-                inter = LLOps.f_reduction_sum(inter, 0, self.shape[i:])
+            dims_iter = range(self.ndim) if dims is None else dims
+            for i, d in enumerate(dims_iter):
+                inter = LLOps.f_reduction_sum(inter, d - i, self.shape[i:])
             return Tensor(inter)
-        else:
-            assert isinstance(dim, int) is True
-            return Tensor(LLOps.f_reduction_sum(self.elems, dim, self.shape))
+
+    def mean(self, dims=None):
+        count = 1
+        if dims is None:
+            count = math.prod(self.shape)
+        elif isinstance(dims, int):
+            count = self.shape[dims]
+        else:  # iterable (list, tuple)
+            for i in dims:
+                count *= self.shape[i]
+        return self.sum(dims) * (1 / count)
 
     def prod(self, dim):
         assert isinstance(dim, int) is True
@@ -483,6 +500,9 @@ class Tensor:
     def reshape(self, shape):
         return Tensor(LLOps.f_reshape_flattened(LLOps.f_flatten(self.elems), shape))
 
+    def view(self, shape):
+        return self.reshape(shape)
+
     def permute(self, shape):
         # newindex = old_index[perm]
         def calc_card(a):
@@ -507,7 +527,7 @@ class Tensor:
 class nn:
     class Module:
 
-        def __init__(self):
+        def __init__(self, *args, **kwargs):
             self.cache = None
 
         def __call__(self, x: Tensor):
@@ -546,8 +566,8 @@ class nn:
             super().__init__()
             init_value_min = -0.1
             init_value_max = 0.1
-            self.w = Tensor.random_float(shape=(out_features, in_features), min=init_value_min, max=init_value_max)
-            self.b = Tensor.random_float(shape=(out_features, ), min=init_value_min, max=init_value_max)
+            self.weight = Tensor.random_float(shape=(out_features, in_features), min=init_value_min, max=init_value_max)
+            self.bias = Tensor.random_float(shape=(out_features, ), min=init_value_min, max=init_value_max)
 
             self.dw = None
             self.db = None
@@ -555,7 +575,7 @@ class nn:
         def forward(self, x: Tensor):
             # shapes x: (B, C_in) , w.T: (C_in, C_out)  b: (C_out)
             self.cache = x
-            return x @ self.w.T + self.b
+            return x @ self.weight.T + self.bias
 
         def backward(self, dout: Tensor):
             x = self.cache
@@ -564,15 +584,15 @@ class nn:
             self.dw = x.T @ dout
 
             # grad wrt bias
-            self.db = dout.sum(dim=0)
+            self.db = dout.sum(0)
 
             # grad wrt x
-            dx = (dout @ self.w).reshape(x.shape)
+            dx = (dout @ self.weight).reshape(x.shape)
             return dx
 
         def update(self, lr):
-            self.w -= self.dw.T * lr
-            self.b -= self.db * lr
+            self.weight -= self.dw.T * lr
+            self.bias -= self.db * lr
 
     class Sequential(Module):
         skip_cache = {}
@@ -581,6 +601,11 @@ class nn:
         def __init__(self, *modules):
             super().__init__()
             self.modules = modules
+
+        def __getattr__(self, name):
+            # does not work as intended
+            if name.isnumeric():
+                return self.modules[int(name)]
 
         def forward(self, x: Tensor):
             for module in self.modules:
@@ -621,6 +646,106 @@ class nn:
             nn.Sequential.skip_grad_cache[self.name] = dout
             return dout
 
+    class Conv2d(Module):
+        def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride=1, padding=0, bias=True):
+            super().__init__()
+            init_value_min = - 0.1
+            init_value_max = 0.1
+            self.stride = stride
+            self.padding = padding
+            self.kernel_size = kernel_size
+            self.out_channels = out_channels
+            self.weight = Tensor.random_float(shape=(out_channels, in_channels, kernel_size, kernel_size), min=init_value_min, max=init_value_max)
+            self.bias = Tensor.random_float(shape=(out_channels, ), min=init_value_min, max=init_value_max) if bias else [0 for _ in range(out_channels)]
+
+        def __call__(self, x: Tensor):
+            return self.forward(x)
+
+        def forward(self, x: Tensor):
+            return self.forward_gemm(x)
+
+        def forward_naive(self, x: Tensor):
+            #  shapes x: (B, C_in, H, W)    w: (C_out, C_in, K, K)    b: (C_Out)    out: (B, C_out, H/s, W/s)
+            B, C_in, H, W = x.shape
+            C_out = self.out_channels
+            K, P, S = self.kernel_size, self.padding, self.stride
+            H_out = (H - K + 2 * P) // S + 1
+            W_out = (W - K + 2 * P) // S + 1
+            output_tensor = Tensor.zeros((B, C_out, H_out, W_out))
+            x_padded = Tensor.zeros((B, C_in, H+2*P, W+2*P))
+            x_padded[:, :, P:-P, P:-P] = x
+            for h_out, h in enumerate(range(0, H + 2 * P - K - 1, S)):  # todo replace with + ?
+                for w_out, w in enumerate(range(0, W + 2 * P - K - 1, S)):
+                    for c_out in range(C_out):
+                        x_chunk = x[:, :, h:h+K, w:w+K]  # shape (B, C_in, K, K)
+                        w_c = self.weight[c_out, :, :, :]  # shape (C_in, K, K)
+                        output_tensor[0, c_out, h_out, w_out] = (x_chunk * w_c).sum((1, 2, 3)) + self.bias[c_out]  #TODO: replace 0 by :
+            return output_tensor
+
+        def forward_gemm(self, x: Tensor):
+            # Not working yet
+            B, C_in, H, W = x.shape
+            images = []
+            for b in range(B):
+                C_out = self.out_channels
+                K, P, S = self.kernel_size, self.padding, self.stride
+                H_out = (H - K + 2 * P) // S + 1
+                W_out = (W - K + 2 * P) // S + 1
+                reshaped_kernel = self.weight.reshape((C_out, C_in * K * K))
+
+                def im2col(x, reshaped_size):
+                    coloums = []
+                    coloum_idx = 0
+                    for h_out, h in enumerate(range(0, H + 2 * P - K + 1, S)):
+                        for w_out, w in enumerate(range(0, W + 2 * P - K + 1, S)):
+                            coloums.append(x[b, :, h:h+K, w:w+K].flatten().tolist())
+                            coloum_idx += 1
+                    return coloums
+
+                col_repres = im2col(x, reshaped_size=(H_out*W_out, K*K*C_out))
+                res = Tensor(col_repres) @ reshaped_kernel.T
+                res = res.reshape((C_out, H_out, W_out))
+
+                assert res.shape == (C_out, H_out, W_out)
+                images.append(res)
+            return Tensor.stack(images)
+
+    class BatchNorm2d(Module):
+        def __init__(self, num_features, *args, **kwargs):
+            self.weight = Tensor.random_float((num_features,))
+            self.bias = Tensor.random_float((num_features,))
+            self.running_mean = Tensor.zeros((num_features,))
+            self.running_var = Tensor.ones((num_features,))
+            self.num_batches_tracked = Tensor([0])
+            super().__init__(*args, **kwargs)
+
+        def forward(self, x: Tensor):
+            print("Warning: NOT IMPLEMENTED")
+            return x
+
+    class MaxPool2d(Module):
+        def __init__(self, kernel_size=2, stride=2, padding=0):
+            self.kernel_size = kernel_size
+            self.stride = stride
+            self.padding = padding
+            super().__init__()
+
+        def forward(self, x: Tensor):
+            B, C_in, H, W = x.shape
+            K, P, S = self.kernel_size, self.padding, self.stride
+            H_out = (H - K + 2 * P) // S + 1
+            W_out = (W - K + 2 * P) // S + 1
+            output_tensor = Tensor.zeros((B, C_in, H_out, W_out))
+            for h_out, h in enumerate(range(-P, H + P, S)):
+                for w_out, w in enumerate(range(-P, W + P, S)):
+                    output_tensor[:, :, h_out, w_out] = x[:, :, h:h+K, w:w+K].mean((2, 3))
+            return x
+
+    class AdaptiveAvgPool2d(Module):
+        def forward(self, x: Tensor):
+            print("Warning: NOT IMPLEMENTED")
+            return x
+
     class AbstactLoss:
         def __init__(self):
             self.cache = None
@@ -650,46 +775,20 @@ class nn:
             input, target, inv_size = self.cache
             return inv_size * (target - input) * dout
 
-    class Conv2d(Module):
-        def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride=1, padding=0):
-            super().__init__()
-            init_value_min = - 0.1
-            init_value_max = 0.1
-            self.stride = stride
-            self.padding = padding
-            self.kernel_size = kernel_size
-            self.out_channels = out_channels
-            self.w = Tensor.random_float(shape=(out_channels, in_channels, kernel_size, kernel_size), min=init_value_min, max=init_value_max)
-            self.b = Tensor.random_float(shape=(out_channels, ), min=init_value_min, max=init_value_max)
 
-        def forward(self, x: Tensor):
-            #  shapes x: (B, C_in, H, W)    w: (C_out, C_in, K, K)    b: (C_Out)    out: (B, C_out, H/s, W/s)
-            B, C_in, H, W = x.shape
-            C_out = self.out_channels
-            K = self.kernel_size
-            H_out = (H - 2 * self.padding) / self.stride
-            W_out = (W - 2 * self.padding) / self.stride
-            result = Tensor.zeros((B, C_out, H_out, W_out))
-            for u in range(self.padding, H - self.padding, self.stride):
-                for v in range(self.padding, H - self.padding, self.stride):
-                    x_chunk = x[:, :, u:u+K, v:v+K].reshape((B, C_in, K*K))  # reshaped from B, C_in, K, K
-                    result[:, :, u, v] = x_chunk @ self.w + self.b
-                    #                   (B,C_in, K,K) @( C_out, C_in, K, K) + ( C_out)
-                    # TODO complete
-
-    # missing: weight_init, ConvTranspose2d, MaxPool2d, AvgPool2d, Softmax, BatchNorm2d, InstanceNorm2d, LayerNorm2d, Losses
-
+    # missing: weight_init, ConvTranspose2d, AvgPool2d, Softmax, InstanceNorm2d, LayerNorm2d, Losses
 
 class PthUnpickler(pickle.Unpickler):
-    def __init__(self, picklefile, zipfile):
+    def __init__(self, picklefile, zipfile, name):
         self.zipfile = zipfile
+        self.name = name
         super().__init__(picklefile)
 
     def persistent_load(self, pid):
         # print("pid", pid)
         storage, class_type, storage_dir, gpu, size = pid
         data_list = None
-        with self.zipfile.open(f'best/data/{storage_dir}') as f:
+        with self.zipfile.open(f'{self.name}/data/{storage_dir}') as f:
             data = f.read()
             if class_type == "int64":
                 data_list = [int.from_bytes(data[i: i+8], "little") for i in range(0, len(data), 8)]
@@ -708,7 +807,7 @@ class PthUnpickler(pickle.Unpickler):
             tensor = tensor.reshape(size)
         return tensor
 
-    def find_class(self, module, name):
+    def find_class(self, module, name, strict=True):
         # print("m", module, "n", name)
         if module == 'torch' and name == 'FloatStorage':
             return "float"
@@ -718,37 +817,57 @@ class PthUnpickler(pickle.Unpickler):
             return "int32"
         elif module == 'torch._utils' and name == '_rebuild_tensor_v2':
             return self.load_replacement  # torch._utils._rebuild_tensor_v2
+        elif module == 'collections' and name == 'OrderedDict':
+            return collections.OrderedDict
         else:
             print("WARNING: loading module", module, "name", name)
-            return super().find_class(module, name)
+            if strict:
+                return super().find_class(module, name)
+            else:
+                return None
 
 
 def load_model(path):
     with ZipFile(path) as zip_file:
-        with zip_file.open(f'best/data.pkl') as pickle_file:
-            p = PthUnpickler(pickle_file, zip_file)
+        name = path.split("//")[-1][:-4]
+        with zip_file.open(f'{name}/data.pkl') as pickle_file:
+            p = PthUnpickler(pickle_file, zip_file, name)
             print("loading ...")
             model_dict = p.load()
             print("loading completed")
-            print(model_dict["model_state_dict"])
+            #print(model_dict)
+    if "model_state_dict" in model_dict:
+        return model_dict
     return model_dict
 
 
-class ImageIO:
+def weight_apply(model, dict):
+    for k, v in dict.items():
+        current_a = model
+        for part in k.split("."):
+            if part.isnumeric():
+                current_a = current_a.modules[int(part)]
+            else:
+                current_a = current_a.__getattribute__(part)
+        if v.shape != current_a.shape:
+            print(f"WARNING, change shape of {k} from {current_a.shape} to {v.shape}")
+        current_a.replace(v)
 
+
+class ImageIO:
     @staticmethod
-    def c_method(method, x, a, b, c):
+    def png_filter(method, a, b, c):
         if method == 1:
-            return x+a
-        if method == 3:
-            return x + (a + b) // 2
+            return a
+        elif method == 3:
+            return (a + b) // 2
         elif method == 4:
             p = a + b - c
             pa = abs(p - a)
             pb = abs(p - b)
             pc = abs(p - c)
             Pr = a if pa <= pb and pa <= pc else b if pb <= pc else c
-            return x + Pr
+            return Pr
 
     @staticmethod
     def png_decompress(data_bytes, width, height, n_channels):
@@ -769,11 +888,10 @@ class ImageIO:
                 line = [[a_i_j % 256 for a_i_j in a_i] for a_i in line]           # line = line%256
             elif method == 1 or method == 3 or method == 4:
                 for w in range(width):
-                    line[w] = [ImageIO.c_method(method,
-                                                x=line[w][c],
-                                                a=line[w-1][c] if w > 0 else 0,
-                                                b=last_line[w][c],
-                                                c=last_line[w-1][c] if w > 0 else 0) % 256
+                    line[w] = [(line[w][c] + ImageIO.png_filter(method,
+                                                                a=line[w-1][c] if w > 0 else 0,
+                                                                b=last_line[w][c],
+                                                                c=last_line[w-1][c] if w > 0 else 0)) % 256
                                for c in range(n_channels)]
             last_line = line
             lines.append(line)
@@ -807,32 +925,35 @@ class ImageIO:
                 if chunk_type == b'IEND':
                     start = None
             lines = ImageIO.png_decompress(data, width, height, color_type_bytes)
-        return lines
+        return Tensor(lines)
 
     @staticmethod
     def save_png(path, tensor):
         raise NotImplementedError
         height, width, channels = tensor.shape
-        data_compressed = zlib.compress(tensor.tolist())
+        data_compressed = zlib.compress(tensor.tolist())  # filter before that (line[w][c] - ImageIO.png_defilter) % 256
         header = b'\x89PNG\r\n\x1a\n'
 
         # IHDR
-        chunk_size = int.to_bytes(13)
-        chunk_type = b'IHDR'
-        chunk_data = ...
-        chunk_crc = ...
+        h_chunk_size = int.to_bytes(13)
+        h_chunk_type = b'IHDR'
+        h_chunk_data = ...
+        h_chunk_crc = ...
 
         # IDATA
-        chunk_size = ...
-        chunk_type = b'IDATA'
-        chunk_data = ...
-        chunk_crc = ...
+        d_chunk_size = ...
+        d_chunk_type = b'IDATA'
+        d_chunk_data = data_compressed
+        d_chunk_crc = ...
 
         # IEND
-        chunk_size = int.to_bytes(0)
-        chunk_type = b'IEND'
-        chunk_data = b''
-        chunk_crc = ...
+        e_chunk_size = int.to_bytes(0)
+        e_chunk_type = b'IEND'
+        e_chunk_data = b''
+        e_chunk_crc = ...
+        joint = (header + h_chunk_size + h_chunk_type + h_chunk_data + h_chunk_crc
+                        + d_chunk_size + d_chunk_type + d_chunk_data + d_chunk_crc
+                        + e_chunk_size + e_chunk_type + e_chunk_data + e_chunk_crc)
 
 
 if __name__ == "__main__":
