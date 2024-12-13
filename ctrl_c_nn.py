@@ -5,16 +5,17 @@ __original_source__ = "https://github.com/manu12121999/ctrl_c_nn/blob/main/ctrl_
 __email__ = "manu12121999@gmail.com"
 
 import collections
+import copy
 import pickle
 import random
 import struct
+import time
 import zlib
 import sys
 import math
 import operator
 from multiprocessing import Pool
 from zipfile import ZipFile
-
 
 sumprod = math.sumprod if sys.version_info >= (3, 12) else lambda p, q: sum([p_i*q_i for p_i, q_i in zip(p, q)])
 
@@ -43,10 +44,12 @@ class LLOps:
     @staticmethod
     def f_unary_op(a: list, f):
         # input tensor output list of list
-        if isinstance(a[0], list):
-            return [LLOps.f_unary_op(a_i, f) for a_i in a]
-        else:
+        if not isinstance(a, list):
+            return f(a)
+        if not isinstance(a[0], list):
             return [f(a_i) for a_i in a]
+        else:
+            return [LLOps.f_unary_op(a_i, f) for a_i in a]
 
     @staticmethod
     def f_operator_scalar(a: list, b: (int, float), op):
@@ -184,12 +187,34 @@ class LLOps:
             return a
 
     @staticmethod
+    def f_calc_shape(a: list):
+        assert isinstance(a, list)
+        if not isinstance(a[0], list):
+            return [len(a)]
+        else:
+            l = LLOps.f_calc_shape(a[0])
+            l.insert(0, len(a))
+            return l
+
+    @staticmethod
     def f_setitem(a: list, key: tuple, value):
         # set the item at position key of list a to a value. Value can be scalar or list.  (a[key] = value)
         if len(key) == 1:
             a[key[0]] = value
+            return a
         else:
-            LLOps.f_setitem(a[key[0]], key[1:], value)
+            i = key[0]
+            if isinstance(i, int):
+                m = a[:i] + [LLOps.f_setitem(a[i], key[1:], value)] + a[i+1:]
+            else:  # i is a slice
+                assert i.step is None
+                start = i.start if i.start is not None else 0
+                stop = i.stop if i.stop is not None else len(a)
+                m = a[:start]
+                for a_i_j, v_i in zip(a[i], value):
+                    m += [LLOps.f_setitem(a_i_j, key[1:], v_i)]
+                m += a[stop:]
+            return m
 
     @staticmethod
     def f_reshape_flattened(a: list, shape: tuple):
@@ -201,25 +226,48 @@ class LLOps:
             return [LLOps.f_reshape_flattened(a[i*n:(i+1)*n], shape[1:]) for i in range(shape[0])]
 
     @staticmethod
+    def f_permute_201(a):
+        I, J, K = len(a), len(a[0]), len(a[0][0])
+
+        m = [[[a[i][j][k]
+               for j in range(J)]
+              for i in range(I)]
+             for k in range(K)]
+        return m
+
+    @staticmethod
     def f_advanced_indexing_1d(a: (list, tuple), b: (list, tuple)):
         return tuple([a[b_i] for b_i in b])
 
     @staticmethod
-    def f_reduction_sum(a, dim, shape):
-        if dim == 0:
+    def f_reduction_sum(a, reduction_dim, shape):
+        if reduction_dim == 0:
             if len(shape) == 1:
                 return sum(a)
             else:
                 zeros = LLOps.fill(shape[1:], 0)
-                for a_i in a:
+                for a_i in a:  # zeros = ((zeros + a_0) + a_1) + ...
                     zeros = LLOps.f_operator_same_size(zeros, a_i, operator.add)
                 return zeros
         else:
-            return [LLOps.f_reduction_sum(a_i, dim-1, shape[1:]) for a_i in a]
+            return [LLOps.f_reduction_sum(a_i, reduction_dim-1, shape[1:]) for a_i in a]
 
     @staticmethod
-    def f_reduction_prod(a, dim, shape):
-        if dim == 0:
+    def f_reduction_max(a, reduction_dim, shape):
+        if reduction_dim == 0:
+            if len(shape) == 1:
+                return max(a)
+            else:
+                neg_inf = LLOps.fill(shape[1:], -math.inf)
+                for a_i in a:
+                    neg_inf = LLOps.f_operator_same_size(neg_inf, a_i, lambda x, y: max(x, y))
+                return neg_inf
+        else:
+            return [LLOps.f_reduction_max(a_i, reduction_dim-1, shape[1:]) for a_i in a]
+
+    @staticmethod
+    def f_reduction_prod(a, reduction_dim, shape):
+        if reduction_dim == 0:
             if len(shape) == 1:
                 return math.prod(a)
             else:
@@ -228,7 +276,7 @@ class LLOps:
                     inter = LLOps.f_operator_same_size(inter, a_i, operator.mul)
                 return inter
         else:
-            return [LLOps.f_reduction_prod(a_i, dim-1, shape[1:]) for a_i in a]
+            return [LLOps.f_reduction_prod(a_i, reduction_dim-1, shape[1:]) for a_i in a]
 
 
 class Tensor:
@@ -296,8 +344,7 @@ class Tensor:
 
     @staticmethod
     def stack(tensor_list):
-
-        Tensor([t.elems for t in tensor_list])
+        return Tensor([t.elems for t in tensor_list])
 
     ########################
     # Arithmetic Operations
@@ -357,6 +404,12 @@ class Tensor:
 
     def __rmul__(self, other):
         return self.__mul__(other)
+
+    def __truediv__(self, other):
+        return Tensor(Tensor._basic_op(self, other, operator.truediv))
+
+    def __floordiv__(self, other):
+        return Tensor(Tensor._basic_op(self, other, operator.floordiv))
 
     @staticmethod
     def _f_matmul(a, b):
@@ -418,6 +471,9 @@ class Tensor:
     def __abs__(self):
         return self.abs()
 
+    def sqrt(self):
+        return Tensor(LLOps.f_unary_op(self.elems, math.sqrt))
+
     def __pow__(self, num):
         if num == 2:
             return Tensor(LLOps.f_operator_same_size(self.elems, self.elems, operator.mul))
@@ -455,6 +511,16 @@ class Tensor:
                 count *= self.shape[i]
         return self.sum(dims) * (1 / count)
 
+    def max(self, dims=None):
+        if isinstance(dims, int):
+            return Tensor(LLOps.f_reduction_max(self.elems, dims, self.shape))
+        else:  # iterable (list, tuple) or None
+            inter = self.elems
+            dims_iter = range(self.ndim) if dims is None else dims
+            for i, d in enumerate(dims_iter):
+                inter = LLOps.f_reduction_max(inter, d - i, self.shape[i:])
+            return Tensor(inter)
+
     def prod(self, dim):
         assert isinstance(dim, int) is True
         return Tensor(LLOps.f_reduction_prod(self.elems, dim, self.shape))
@@ -483,10 +549,11 @@ class Tensor:
 
     def __setitem__(self, key, value):
         v = value.elems if isinstance(value, Tensor) else value
+        v = copy.deepcopy(v)
         if isinstance(key, (int, slice)):
             self.elems[key] = v
         else:  # key is tuple, list, or other iterable
-            LLOps.f_setitem(self.elems, key, v)
+            self.elems = LLOps.f_setitem(self.elems, key, v)
 
     def flatten(self):
         return Tensor(LLOps.f_flatten(self.elems))
@@ -662,10 +729,15 @@ class nn:
             return self.forward(x)
 
         def forward(self, x: Tensor):
-            return self.forward_gemm(x)
+            start_time = time.time()
+            #print("naive will return", self.forward_naive(x))
+            #print("gemm will return", self.forward_gemm(x))
+            res = self.forward_gemm(x)
+            print("Conv2d took ", time.time() - start_time)
+            return res
 
         def forward_naive(self, x: Tensor):
-            #  shapes x: (B, C_in, H, W)    w: (C_out, C_in, K, K)    b: (C_Out)    out: (B, C_out, H/s, W/s)
+            #  shapes x: (B, C_in, H, W)    w: (C_out, C_in, K, K)    b: (C_Out)    out: (B, C_out, ~H/s, ~W/s)
             B, C_in, H, W = x.shape
             C_out = self.out_channels
             K, P, S = self.kernel_size, self.padding, self.stride
@@ -674,54 +746,71 @@ class nn:
             output_tensor = Tensor.zeros((B, C_out, H_out, W_out))
             x_padded = Tensor.zeros((B, C_in, H+2*P, W+2*P))
             x_padded[:, :, P:-P, P:-P] = x
-            for h_out, h in enumerate(range(0, H + 2 * P - K - 1, S)):  # todo replace with + ?
-                for w_out, w in enumerate(range(0, W + 2 * P - K - 1, S)):
+            for h_out, h in enumerate(range(0, H + 2 * P - K + 1, S)):
+                for w_out, w in enumerate(range(0, W + 2 * P - K + 1, S)):
                     for c_out in range(C_out):
-                        x_chunk = x[:, :, h:h+K, w:w+K]  # shape (B, C_in, K, K)
+                        x_chunk = x_padded[:, :, h:h+K, w:w+K]  # shape (B, C_in, K, K)
+                        assert x_chunk.shape == (B, C_in, K, K), "wrong shape"
                         w_c = self.weight[c_out, :, :, :]  # shape (C_in, K, K)
-                        output_tensor[0, c_out, h_out, w_out] = (x_chunk * w_c).sum((1, 2, 3)) + self.bias[c_out]  #TODO: replace 0 by :
+                        output_tensor[:, c_out, h_out, w_out] = (x_chunk * w_c).sum((1, 2, 3)) + self.bias[c_out]
+            assert output_tensor.shape == (B, C_out, H_out, W_out), "wrong output shape"
             return output_tensor
 
         def forward_gemm(self, x: Tensor):
             # Not working yet
             B, C_in, H, W = x.shape
-            images = []
-            for b in range(B):
-                C_out = self.out_channels
-                K, P, S = self.kernel_size, self.padding, self.stride
-                H_out = (H - K + 2 * P) // S + 1
-                W_out = (W - K + 2 * P) // S + 1
-                reshaped_kernel = self.weight.reshape((C_out, C_in * K * K))
+            C_out = self.out_channels
+            K, P, S = self.kernel_size, self.padding, self.stride
+            H_out = (H - K + 2 * P) // S + 1
+            W_out = (W - K + 2 * P) // S + 1
 
-                def im2col(x, reshaped_size):
-                    coloums = []
-                    coloum_idx = 0
-                    for h_out, h in enumerate(range(0, H + 2 * P - K + 1, S)):
-                        for w_out, w in enumerate(range(0, W + 2 * P - K + 1, S)):
-                            coloums.append(x[b, :, h:h+K, w:w+K].flatten().tolist())
-                            coloum_idx += 1
-                    return coloums
+            x_padded = Tensor.zeros((B, C_in, H + 2 * P, W + 2 * P))
+            x_padded[:, :, P:-P, P:-P] = x
 
-                col_repres = im2col(x, reshaped_size=(H_out*W_out, K*K*C_out))
-                res = Tensor(col_repres) @ reshaped_kernel.T
-                res = res.reshape((C_out, H_out, W_out))
+            reshaped_kernel = self.weight.reshape((C_out, C_in * K * K))
 
-                assert res.shape == (C_out, H_out, W_out)
-                images.append(res)
-            return Tensor.stack(images)
+            def im2col(x_pad):
+                coloums = [x_pad[b, :, h:h+K, w:w+K].flatten().tolist()
+                           for b in range(B)
+                           for h_out, h in enumerate(range(0, H + 2 * P - K + 1, S))
+                           for w_out, w in enumerate(range(0, W + 2 * P - K + 1, S))]
+                #coloums = []
+                #for b in range(B):
+                #    for h_out, h in enumerate(range(0, H + 2 * P - K + 1, S)):
+                #        for w_out, w in enumerate(range(0, W + 2 * P - K + 1, S)):
+                #            coloums.append(x_pad[b, :, h:h+K, w:w+K].flatten().tolist())
+                return coloums
+
+            col_repres = im2col(x_padded)
+            start_mat = time.time()
+            res = reshaped_kernel @ Tensor(col_repres).T
+            print("MATMUL OF CONV TOOK", time.time() - start_mat)
+            res = res.reshape((B, C_out, H_out, W_out))
+
+            assert res.shape == (B, C_out, H_out, W_out)
+            return res
 
     class BatchNorm2d(Module):
-        def __init__(self, num_features, *args, **kwargs):
+        def __init__(self, num_features, eps=1e-05, *args, **kwargs):
             self.weight = Tensor.random_float((num_features,))
             self.bias = Tensor.random_float((num_features,))
             self.running_mean = Tensor.zeros((num_features,))
             self.running_var = Tensor.ones((num_features,))
             self.num_batches_tracked = Tensor([0])
+            self.C = num_features
+            self.eps = eps
             super().__init__(*args, **kwargs)
 
         def forward(self, x: Tensor):
-            print("Warning: NOT IMPLEMENTED")
-            return x
+            start_time = time.time()
+            y = Tensor.zeros(x.shape)
+            for b in range(x.shape[0]):
+                for c in range(self.C):
+                    y[b, c] = (x[b, c, :, :] - self.running_mean[c]) / (self.running_var[c] + self.eps).sqrt()
+                    y[b, c] = y[b, c] * self.weight[c] + self.bias[c]
+            assert y.shape == x.shape
+            print("BatchNorm took ", time.time() - start_time)
+            return y
 
     class MaxPool2d(Module):
         def __init__(self, kernel_size=2, stride=2, padding=0):
@@ -732,13 +821,18 @@ class nn:
 
         def forward(self, x: Tensor):
             B, C_in, H, W = x.shape
+            print("shape X", x.shape)
+            start_time = time.time()
             K, P, S = self.kernel_size, self.padding, self.stride
             H_out = (H - K + 2 * P) // S + 1
             W_out = (W - K + 2 * P) // S + 1
+            x_padded = Tensor.zeros((B, C_in, H + 2 * P, W + 2 * P))
+            x_padded[:, :, P:-P, P:-P] = x
             output_tensor = Tensor.zeros((B, C_in, H_out, W_out))
-            for h_out, h in enumerate(range(-P, H + P, S)):
-                for w_out, w in enumerate(range(-P, W + P, S)):
-                    output_tensor[:, :, h_out, w_out] = x[:, :, h:h+K, w:w+K].mean((2, 3))
+            for h_out, h in enumerate(range(0, H + 2 * P - K + 1, S)):
+                for w_out, w in enumerate(range(0, W + 2 * P - K + 1, S)):
+                    output_tensor[:, :, h_out, w_out] = x_padded[:, :, h:h+K, w:w+K].max((2, 3))
+            print("MaxPool took ", time.time() - start_time)
             return x
 
     class AdaptiveAvgPool2d(Module):
@@ -790,12 +884,8 @@ class PthUnpickler(pickle.Unpickler):
         data_list = None
         with self.zipfile.open(f'{self.name}/data/{storage_dir}') as f:
             data = f.read()
-            if class_type == "int64":
-                data_list = [int.from_bytes(data[i: i+8], "little") for i in range(0, len(data), 8)]
-            elif class_type == "int32":
-                data_list = [int.from_bytes(data[i: i+4], "little") for i in range(0, len(data), 4)]
-            elif class_type == "float":
-                data_list = [struct.unpack('f', data[i: i+4])[0] for i in range(0, len(data), 4)]
+            if class_type in ["f", "q", "i"]:
+                data_list = list(struct.unpack(f'<{size}{class_type}', data))
         return data_list
 
     @staticmethod
@@ -810,11 +900,11 @@ class PthUnpickler(pickle.Unpickler):
     def find_class(self, module, name, strict=True):
         # print("m", module, "n", name)
         if module == 'torch' and name == 'FloatStorage':
-            return "float"
+            return "f"
         elif module == 'torch' and name == 'LongStorage':
-            return "int64"
+            return "q"
         elif module == 'torch' and name == 'IntStorage':
-            return "int32"
+            return "i"
         elif module == 'torch._utils' and name == '_rebuild_tensor_v2':
             return self.load_replacement  # torch._utils._rebuild_tensor_v2
         elif module == 'collections' and name == 'OrderedDict':
@@ -871,30 +961,38 @@ class ImageIO:
 
     @staticmethod
     def png_decompress(data_bytes, width, height, n_channels):
+
         data_bytes = zlib.decompress(data_bytes)
+
         lines = []
-        last_line = [[0 for _ in range(n_channels)] for _ in range(width)]
+        last_line = [[0 for _ in range(n_channels)] for _ in range(width + 1)]
         for line_idx in range(height):
+
             line_start = line_idx * (width * n_channels + 1)
             line_end = (line_idx+1) * (width * n_channels + 1)
 
-            method = int.from_bytes(data_bytes[line_start:line_start + 1], "big")
-            line_flat = [int.from_bytes(data_bytes[i:i+1], "big") for i in range(line_start+1, line_end)]
+            #line_flat_old = [int.from_bytes(data_bytes[i:i+1], "big") for i in range(line_start, line_end)]
+            line_flat = list(struct.unpack(f'>{line_end - line_start}B', data_bytes[line_start:line_end]))
 
-            line = LLOps.f_reshape_flattened(line_flat, (width, n_channels))
+            #assert line_flat_old == line_flat, f"old \n{line_flat_old[-10:]}, new \n{line_flat[-10:]}"
+
+            method = line_flat[0]
+            line_flat = [0 for _ in range(n_channels)] + line_flat[1:]  # add zero padding for filtering
+            line = LLOps.f_reshape_flattened(line_flat, (width + 1, n_channels))
 
             if method == 2:
                 line = LLOps.f_operator_same_size(line, last_line, operator.add)  # line + last_line
                 line = [[a_i_j % 256 for a_i_j in a_i] for a_i in line]           # line = line%256
+
             elif method == 1 or method == 3 or method == 4:
-                for w in range(width):
+                for w in range(1, width + 1):
                     line[w] = [(line[w][c] + ImageIO.png_filter(method,
-                                                                a=line[w-1][c] if w > 0 else 0,
+                                                                a=line[w-1][c],
                                                                 b=last_line[w][c],
-                                                                c=last_line[w-1][c] if w > 0 else 0)) % 256
+                                                                c=last_line[w-1][c])) % 256
                                for c in range(n_channels)]
             last_line = line
-            lines.append(line)
+            lines.append(line[1:])
         return lines
 
     @staticmethod
@@ -902,7 +1000,6 @@ class ImageIO:
         with open(path, "br") as f:
             data = b''
             width, height, bit_depth, color_type_str, color_type_bytes = None, None, None, None, None
-
             image_bytes = f.read()
             # header = image_bytes[:8]
             start = 8
