@@ -1,5 +1,5 @@
 __author__ = "Manuel Vogel"
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 __website__ = "https://github.com/manu12121999/ctrl_c_nn"
 __original_source__ = "https://github.com/manu12121999/ctrl_c_nn/blob/main/ctrl_c_nn.py"
 __email__ = "manu12121999@gmail.com"
@@ -52,22 +52,22 @@ class LLOps:
             return [LLOps.f_unary_op(a_i, f) for a_i in a]
 
     @staticmethod
-    def f_operator_scalar(a: list, b: (int, float), op):
+    def f_binary_op_scalar(a: list, b: (int, float), op):
         # Add a scalar to a list (of lists). Other operations than add are supported too
         if isinstance(a, (int, float)):
             return op(a, b)
         elif isinstance(a[0], (int, float)):
             return [op(a_i, b) for a_i in a]
         else:
-            return [LLOps.f_operator_scalar(a_i, b, op) for a_i in a]
+            return [LLOps.f_binary_op_scalar(a_i, b, op) for a_i in a]
 
     @staticmethod
-    def f_operator_same_size(a: list, b: list, op):
+    def f_binary_op_same_size(a: list, b: list, op):
         # Add two list (of lists). Other operations than add are supported too
         if isinstance(a[0], (int, float)):
             return [op(a_i, b_i) for a_i, b_i in zip(a, b)]
         else:
-            return [LLOps.f_operator_same_size(a_i, b_i, op) for a_i, b_i in zip(a, b)]
+            return [LLOps.f_binary_op_same_size(a_i, b_i, op) for a_i, b_i in zip(a, b)]
 
     @staticmethod
     def f_add_same_size_performance(a: list, b: list):
@@ -85,19 +85,19 @@ class LLOps:
         return [[a[i][j] for i in range(I)] for j in range(J)]
 
     @staticmethod
-    def f_clone_2d(a: list):
-        # Deep-copy a 2-dimensional list of shape (I, J)
-        I, J = len(a), len(a[0])
-        return [[a[i][j] for j in range(J)] for i in range(I)]
-
-    @staticmethod
     def f_matmul_2d(a: list, b: list):
         # perform matrix multiplication on two 2-dimensional lists
         # (I,K) @ (K, J)  -> (I,J)
         I, K, K2, J = len(a), len(a[0]), len(b), len(b[0])
         assert K == K2
         b_T = LLOps.f_transpose_2d(b)
-        return [[sumprod(a[i], b_T[j]) for j in range(J)] for i in range(I)]
+        return [[sumprod(a_i, b_T_j) for b_T_j in b_T] for a_i in a]
+
+    @staticmethod
+    def f_matmul_transposed_2d(a: list, bT: list):
+        # perform matrix multiplication on two 2-dimensional lists
+        # (I,K) @ (J, K).T  -> (I,J)
+        return [[sumprod(a_i, bT_j) for bT_j in bT] for a_i in a]
 
     @staticmethod
     def f_matmul_2d_multiprocess(a: list, b: list):
@@ -105,8 +105,8 @@ class LLOps:
         # (I,K) @ (K, J)  -> (I,J)
         I, K, K2, J = len(a), len(a[0]), len(b), len(b[0])
         assert K == K2
-        with Pool(24) as p:
-            return p.starmap(LLOps.f_vec_times_mat, ((a_i, b) for a_i in a), chunksize=max(1, I//24))
+        with Pool(8) as p:
+            return p.starmap(LLOps.f_vec_times_mat, ((a_i, b) for a_i in a), chunksize=max(1, I//8))
 
     @staticmethod
     def f_matmul_2d_old(a: list, b: list):
@@ -155,7 +155,7 @@ class LLOps:
 
     @staticmethod
     def f_unsqueeze(a: list, dim: int):
-        # remove one dimension from a list of lists
+        # add one dimension to a list of lists
         if dim == 0:
             return [a]
         elif dim == 1:
@@ -176,15 +176,18 @@ class LLOps:
                 return LLOps.f_slice(a[index], item[1:])
 
     @staticmethod
-    def f_flatten(a: list):
-        # Flatten a list of lists into a single list
-        if isinstance(a[0], list):
-            if isinstance(a[0][0], list):
-                return [subsublist for sublist in a for subsublist in LLOps.f_flatten(sublist)]
+    def f_flatten(a: list, dim=0):
+        # Flatten a list of lists into a single list starting at dim
+        if dim == 0:
+            if isinstance(a[0], list):
+                if isinstance(a[0][0], list):
+                    return [subsublist for sublist in a for subsublist in LLOps.f_flatten(sublist)]
+                else:
+                    return [num for sublist in a for num in sublist]
             else:
-                return [num for sublist in a for num in sublist]
-        else:
-            return a
+                return a
+        else:  # dim > 0
+            return [LLOps.f_flatten(a_i, dim-1) for a_i in a]
 
     @staticmethod
     def f_calc_shape(a: list):
@@ -208,8 +211,8 @@ class LLOps:
                 m = a[:i] + [LLOps.f_setitem(a[i], key[1:], value)] + a[i+1:]
             else:  # i is a slice
                 assert i.step is None
-                start = i.start if i.start is not None else 0
-                stop = i.stop if i.stop is not None else len(a)
+                start = 0 if i.start is None else i.start if i.start > 0 else len(a) + i.start
+                stop = len(a) if i.stop is None else i.stop if i.stop > 0 else len(a) + i.stop
                 m = a[:start]
                 for a_i_j, v_i in zip(a[i], value):
                     m += [LLOps.f_setitem(a_i_j, key[1:], v_i)]
@@ -227,6 +230,7 @@ class LLOps:
 
     @staticmethod
     def f_permute_201(a):
+        # permute shape (H, W, C) to (C, H, W)
         I, J, K = len(a), len(a[0]), len(a[0][0])
 
         m = [[[a[i][j][k]
@@ -240,43 +244,69 @@ class LLOps:
         return tuple([a[b_i] for b_i in b])
 
     @staticmethod
-    def f_reduction_sum(a, reduction_dim, shape):
+    def f_reduction_sum(a, reduction_dim, a_shape):
+        # sum up the list (of lists) along the dimensions specified in shape
         if reduction_dim == 0:
-            if len(shape) == 1:
+            if len(a_shape) == 1:
                 return sum(a)
             else:
-                zeros = LLOps.fill(shape[1:], 0)
+                zeros = LLOps.fill(a_shape[1:], 0)
                 for a_i in a:  # zeros = ((zeros + a_0) + a_1) + ...
-                    zeros = LLOps.f_operator_same_size(zeros, a_i, operator.add)
+                    zeros = LLOps.f_binary_op_same_size(zeros, a_i, operator.add)
                 return zeros
         else:
-            return [LLOps.f_reduction_sum(a_i, reduction_dim-1, shape[1:]) for a_i in a]
+            return [LLOps.f_reduction_sum(a_i, reduction_dim - 1, a_shape[1:]) for a_i in a]
 
     @staticmethod
-    def f_reduction_max(a, reduction_dim, shape):
+    def f_reduction_max(a, reduction_dim, a_shape):
+        # find the max of the list (of lists) along the dimensions specified in shape
         if reduction_dim == 0:
-            if len(shape) == 1:
+            if len(a_shape) == 1:
                 return max(a)
             else:
-                neg_inf = LLOps.fill(shape[1:], -math.inf)
+                neg_inf = LLOps.fill(a_shape[1:], -math.inf)
                 for a_i in a:
-                    neg_inf = LLOps.f_operator_same_size(neg_inf, a_i, lambda x, y: max(x, y))
+                    neg_inf = LLOps.f_binary_op_same_size(neg_inf, a_i, lambda x, y: max(x, y))
                 return neg_inf
         else:
-            return [LLOps.f_reduction_max(a_i, reduction_dim-1, shape[1:]) for a_i in a]
+            return [LLOps.f_reduction_max(a_i, reduction_dim - 1, a_shape[1:]) for a_i in a]
 
     @staticmethod
-    def f_reduction_prod(a, reduction_dim, shape):
+    def f_reduction_prod(a, reduction_dim, a_shape):
+        # calculate the product of the list (of lists) along the dimensions specified in shape
         if reduction_dim == 0:
-            if len(shape) == 1:
+            if len(a_shape) == 1:
                 return math.prod(a)
             else:
-                inter = LLOps.fill(shape[1:], 1)
+                inter = LLOps.fill(a_shape[1:], 1)
                 for a_i in a:
-                    inter = LLOps.f_operator_same_size(inter, a_i, operator.mul)
+                    inter = LLOps.f_binary_op_same_size(inter, a_i, operator.mul)
                 return inter
         else:
-            return [LLOps.f_reduction_prod(a_i, reduction_dim-1, shape[1:]) for a_i in a]
+            return [LLOps.f_reduction_prod(a_i, reduction_dim - 1, a_shape[1:]) for a_i in a]
+
+    @staticmethod
+    def f_stack(iterable, dim):
+        # stack iterables of lists along a certain dim. NOT working yet
+        if dim == 0:
+            return [a_i for a_i in iterable]
+        elif dim == 1:
+            return [[elem for a_i in iterable
+                    for elem in a_i[row_index]]
+                    for row_index in range(len(iterable[0]))]
+        else:
+            raise NotImplementedError
+
+    @staticmethod
+    def f_cat(iterable, dim):
+        # concatenate iterables of lists along a certain dim. ONLY working for dim 0 and 1
+        if dim == 0:
+            return [a_i_j for a_i in iterable for a_i_j in a_i]
+        elif dim == 1:
+            return [[a_i_j for a_i in iterable for a_i_j in a_i[row_index]]
+                    for row_index in range(len(iterable[0]))]
+        else:
+            raise NotImplementedError
 
 
 class Tensor:
@@ -308,6 +338,11 @@ class Tensor:
             elems_str = elems_str[:90] + "  ...  " + elems_str[-90:]
         return f"Tensor of shape {self.shape}.  Elements ({elems_str})"
 
+    def __eq__(self, other):
+        return self.elems == other.elems
+
+    def size(self, dim):
+        return self.shape[dim]
     ######################
     # Construction Methods
     #####################
@@ -356,11 +391,11 @@ class Tensor:
         if isinstance(b, Tensor):
             # print(f"add/mul shapes {a.shape} and {b.shape}")
             if a.shape == ():
-                return LLOps.f_operator_scalar(b.elems, a.item(), op)
+                return LLOps.f_binary_op_scalar(b.elems, a.item(), op)
             elif b.shape == ():
-                return LLOps.f_operator_scalar(a.elems, b.item(), op)
+                return LLOps.f_binary_op_scalar(a.elems, b.item(), op)
             elif a.shape == b.shape:
-                return LLOps.f_operator_same_size(a.elems, b.elems, op)
+                return LLOps.f_binary_op_same_size(a.elems, b.elems, op)
             elif a.ndim == b.ndim:
                 if a.shape[0] == 1:
                     if a.ndim == 1 and b.ndim == 1:
@@ -383,7 +418,7 @@ class Tensor:
             else:
                 raise AssertionError()
         elif isinstance(b, (float, int)):
-            return LLOps.f_operator_scalar(a.elems, b, op)
+            return LLOps.f_binary_op_scalar(a.elems, b, op)
         else:
             raise NotImplementedError("type", type(b))
 
@@ -458,6 +493,10 @@ class Tensor:
         assert isinstance(other, Tensor) is True
         return Tensor(Tensor._f_matmul(self, other))
 
+    def matmul_T_2d(self, other):
+        # self.matmul_t_2d(other) is the same as self @ other.T
+        return Tensor(LLOps.f_matmul_transposed_2d(self.elems, other.elems))
+
     @property
     def T(self):
         if self.ndim == 2:
@@ -474,9 +513,12 @@ class Tensor:
     def sqrt(self):
         return Tensor(LLOps.f_unary_op(self.elems, math.sqrt))
 
+    def exp(self):
+        return Tensor(LLOps.f_unary_op(self.elems, math.exp))
+
     def __pow__(self, num):
         if num == 2:
-            return Tensor(LLOps.f_operator_same_size(self.elems, self.elems, operator.mul))
+            return Tensor(LLOps.f_binary_op_same_size(self.elems, self.elems, operator.mul))
         elif isinstance(num, int):
             return self.apply(lambda x: x**num)
         else:
@@ -555,8 +597,8 @@ class Tensor:
         else:  # key is tuple, list, or other iterable
             self.elems = LLOps.f_setitem(self.elems, key, v)
 
-    def flatten(self):
-        return Tensor(LLOps.f_flatten(self.elems))
+    def flatten(self, dim=0):
+        return Tensor(LLOps.f_flatten(self.elems, dim))
 
     def tolist(self):
         return self.elems
@@ -606,10 +648,13 @@ class nn:
         def backward(self, dout: Tensor):
             raise NotImplementedError
 
+        def load_state_dict(self, state_dict):
+            weight_apply(self, state_dict)
+
     class ReLU(Module):
         def forward(self, x: Tensor):
             self.cache = x
-            return x.apply(lambda v: max(0, v))
+            return x.apply(lambda v: max(0.0, v))
 
         def backward(self, dout: Tensor):
             x = self.cache
@@ -641,8 +686,10 @@ class nn:
 
         def forward(self, x: Tensor):
             # shapes x: (B, C_in) , w.T: (C_in, C_out)  b: (C_out)
+            start = time.time()
             self.cache = x
-            return x @ self.weight.T + self.bias
+            res = x.matmul_T_2d(self.weight) + self.bias
+            return res
 
         def backward(self, dout: Tensor):
             x = self.cache
@@ -716,25 +763,15 @@ class nn:
     class Conv2d(Module):
         def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride=1, padding=0, bias=True):
             super().__init__()
-            init_value_min = - 0.1
-            init_value_max = 0.1
             self.stride = stride
             self.padding = padding
             self.kernel_size = kernel_size
             self.out_channels = out_channels
-            self.weight = Tensor.random_float(shape=(out_channels, in_channels, kernel_size, kernel_size), min=init_value_min, max=init_value_max)
-            self.bias = Tensor.random_float(shape=(out_channels, ), min=init_value_min, max=init_value_max) if bias else [0 for _ in range(out_channels)]
-
-        def __call__(self, x: Tensor):
-            return self.forward(x)
+            self.weight = Tensor.fill(shape=(out_channels, in_channels, kernel_size, kernel_size), number=0.0)
+            self.bias = Tensor.fill(shape=(out_channels, ), number=0.0 if bias else 0)
 
         def forward(self, x: Tensor):
-            start_time = time.time()
-            #print("naive will return", self.forward_naive(x))
-            #print("gemm will return", self.forward_gemm(x))
-            res = self.forward_gemm(x)
-            print("Conv2d took ", time.time() - start_time)
-            return res
+            return self.forward_gemm(x)
 
         def forward_naive(self, x: Tensor):
             #  shapes x: (B, C_in, H, W)    w: (C_out, C_in, K, K)    b: (C_Out)    out: (B, C_out, ~H/s, ~W/s)
@@ -757,37 +794,36 @@ class nn:
             return output_tensor
 
         def forward_gemm(self, x: Tensor):
-            # Not working yet
+            start_time = time.time()
             B, C_in, H, W = x.shape
             C_out = self.out_channels
             K, P, S = self.kernel_size, self.padding, self.stride
             H_out = (H - K + 2 * P) // S + 1
             W_out = (W - K + 2 * P) // S + 1
 
-            x_padded = Tensor.zeros((B, C_in, H + 2 * P, W + 2 * P))
-            x_padded[:, :, P:-P, P:-P] = x
+            x_padded = Tensor.fill((B, C_in, H + 2 * P, W + 2 * P), 0.0)
+            x_padded[:, :, P:H+P, P:W+P] = x
+            assert x_padded[:, :, P:H + P, P:W + P] == x
 
             reshaped_kernel = self.weight.reshape((C_out, C_in * K * K))
 
             def im2col(x_pad):
                 coloums = [x_pad[b, :, h:h+K, w:w+K].flatten().tolist()
                            for b in range(B)
-                           for h_out, h in enumerate(range(0, H + 2 * P - K + 1, S))
-                           for w_out, w in enumerate(range(0, W + 2 * P - K + 1, S))]
-                #coloums = []
-                #for b in range(B):
-                #    for h_out, h in enumerate(range(0, H + 2 * P - K + 1, S)):
-                #        for w_out, w in enumerate(range(0, W + 2 * P - K + 1, S)):
-                #            coloums.append(x_pad[b, :, h:h+K, w:w+K].flatten().tolist())
+                           for h in range(0, H + 2 * P - K + 1, S)
+                           for w in range(0, W + 2 * P - K + 1, S)
+                           ]
                 return coloums
 
             col_repres = im2col(x_padded)
             start_mat = time.time()
-            res = reshaped_kernel @ Tensor(col_repres).T
-            print("MATMUL OF CONV TOOK", time.time() - start_mat)
+            res = reshaped_kernel.matmul_T_2d(Tensor(col_repres))  # for performance reasons, Equal to reshaped_kernel @ Tensor(col_repres).T
+            end_mat = time.time()
             res = res.reshape((B, C_out, H_out, W_out))
+            res = res + self.bias.reshape((1, C_out, 1, 1))
 
             assert res.shape == (B, C_out, H_out, W_out)
+            print("Conv2d took in total", time.time() - start_time, " of which Matmul took", end_mat - start_mat)
             return res
 
     class BatchNorm2d(Module):
@@ -803,11 +839,13 @@ class nn:
 
         def forward(self, x: Tensor):
             start_time = time.time()
-            y = Tensor.zeros(x.shape)
-            for b in range(x.shape[0]):
-                for c in range(self.C):
-                    y[b, c] = (x[b, c, :, :] - self.running_mean[c]) / (self.running_var[c] + self.eps).sqrt()
-                    y[b, c] = y[b, c] * self.weight[c] + self.bias[c]
+            C = self.C
+            mean = self.running_mean.reshape((1, C, 1, 1))
+            std = (self.running_var + self.eps).sqrt().reshape((1, C, 1, 1))
+            weight = self.weight.reshape((1, C, 1, 1))
+            bias = self.bias.reshape((1, C, 1, 1))
+            y = ((x - mean) / std) * weight + bias
+
             assert y.shape == x.shape
             print("BatchNorm took ", time.time() - start_time)
             return y
@@ -821,33 +859,56 @@ class nn:
 
         def forward(self, x: Tensor):
             B, C_in, H, W = x.shape
-            print("shape X", x.shape)
             start_time = time.time()
             K, P, S = self.kernel_size, self.padding, self.stride
             H_out = (H - K + 2 * P) // S + 1
             W_out = (W - K + 2 * P) // S + 1
             x_padded = Tensor.zeros((B, C_in, H + 2 * P, W + 2 * P))
-            x_padded[:, :, P:-P, P:-P] = x
+            x_padded[:, :, P:H+P, P:W+P] = x
+            assert x_padded[:, :, P:H+P, P:W+P].tolist() == x.tolist()
             output_tensor = Tensor.zeros((B, C_in, H_out, W_out))
             for h_out, h in enumerate(range(0, H + 2 * P - K + 1, S)):
                 for w_out, w in enumerate(range(0, W + 2 * P - K + 1, S)):
                     output_tensor[:, :, h_out, w_out] = x_padded[:, :, h:h+K, w:w+K].max((2, 3))
             print("MaxPool took ", time.time() - start_time)
-            return x
+            return output_tensor
 
     class AdaptiveAvgPool2d(Module):
+        def __init__(self, output_size):
+            self.H_out = output_size[0]
+            self.W_out = output_size[1]
+            super().__init__()
+
         def forward(self, x: Tensor):
-            print("Warning: NOT IMPLEMENTED")
+            start_time = time.time()
+            B, C, H, W = x.shape
+            stride_H = H // self.H_out
+            stride_W = W // self.W_out
+            kernel_H = H - (self.H_out - 1) * stride_H
+            kernel_W = W - (self.W_out - 1) * stride_W
+
+            out = Tensor([[[[x[b, c, new_h * stride_H:new_h * stride_H + kernel_H, new_w * stride_W:new_w * stride_W + kernel_W].mean().item()
+                            for new_w in range(self.W_out)]
+                           for new_h in range(self.H_out)]
+                          for c in range(C)]
+                         for b in range(B)])
+
+            assert out.shape == (B, C, self.H_out, self.W_out)
+            print("AdaptiveAvgPool2d took", time.time() - start_time)
+            return out
+
+    class Dropout(Module):
+        def forward(self, x: Tensor):
             return x
 
-    class AbstactLoss:
+    class AbstractLoss:
         def __init__(self):
             self.cache = None
 
         def __call__(self, input: Tensor, target: Tensor):
             return self.forward(input, target)
 
-    class MSELoss(AbstactLoss):
+    class MSELoss(AbstractLoss):
         def forward(self, input: Tensor, target: Tensor):
             inv_size = 1.0 / math.prod(input.shape)
             diff = input - target
@@ -859,7 +920,7 @@ class nn:
             dout = 2 * diff * inv_size * dout
             return dout
 
-    class BCELoss(AbstactLoss):
+    class BCELoss(AbstractLoss):
         def forward(self, input: Tensor, target: Tensor):
             inv_size = 1.0 / math.prod(input.shape)
             self.cache = input, target, inv_size
@@ -917,17 +978,14 @@ class PthUnpickler(pickle.Unpickler):
                 return None
 
 
-def load_model(path):
+def load(path):
     with ZipFile(path) as zip_file:
         name = path.split("//")[-1][:-4]
         with zip_file.open(f'{name}/data.pkl') as pickle_file:
-            p = PthUnpickler(pickle_file, zip_file, name)
             print("loading ...")
+            p = PthUnpickler(pickle_file, zip_file, name)
             model_dict = p.load()
             print("loading completed")
-            #print(model_dict)
-    if "model_state_dict" in model_dict:
-        return model_dict
     return model_dict
 
 
@@ -942,6 +1000,30 @@ def weight_apply(model, dict):
         if v.shape != current_a.shape:
             print(f"WARNING, change shape of {k} from {current_a.shape} to {v.shape}")
         current_a.replace(v)
+
+
+class utils:
+    @staticmethod
+    def cat(tensors, dim):
+        return Tensor(LLOps.f_cat([tensor.elems for tensor in tensors], dim))
+
+    @staticmethod
+    def softmax(input: Tensor, dim=0):
+        if dim == 0:
+            assert input.ndim == 1
+            input_exp = (input - input.max()).exp()
+            return input_exp / input_exp.sum()
+        else:
+            raise NotImplementedError
+
+    @staticmethod
+    def topk(input: Tensor, k):
+        assert input.ndim == 1
+        el = input.elems
+        el_sorted_with_index = sorted(zip(el, range(len(el))), key=lambda x: x[0], reverse=True)
+        topk_prob = [v for (v, i) in el_sorted_with_index[:k]]
+        topk_catid = [i for (v, i) in el_sorted_with_index[:k]]
+        return topk_prob, topk_catid
 
 
 class ImageIO:
@@ -981,7 +1063,7 @@ class ImageIO:
             line = LLOps.f_reshape_flattened(line_flat, (width + 1, n_channels))
 
             if method == 2:
-                line = LLOps.f_operator_same_size(line, last_line, operator.add)  # line + last_line
+                line = LLOps.f_binary_op_same_size(line, last_line, operator.add)  # line + last_line
                 line = [[a_i_j % 256 for a_i_j in a_i] for a_i in line]           # line = line%256
 
             elif method == 1 or method == 3 or method == 4:
@@ -996,7 +1078,7 @@ class ImageIO:
         return lines
 
     @staticmethod
-    def read_png(path):
+    def read_png(path, resize=None, dimorder="HWC", num_channels=3, to_float=True, mean=(0.0, 0.0, 0.0), std=(1.0, 1.0, 1.0)):
         with open(path, "br") as f:
             data = b''
             width, height, bit_depth, color_type_str, color_type_bytes = None, None, None, None, None
@@ -1022,7 +1104,29 @@ class ImageIO:
                 if chunk_type == b'IEND':
                     start = None
             lines = ImageIO.png_decompress(data, width, height, color_type_bytes)
-        return Tensor(lines)
+        t = Tensor(lines)
+
+        if t.shape[2] > num_channels:
+            t = t[:, :, :num_channels]
+        elif t.shape[2] < num_channels:
+            raise NotImplementedError
+
+        if resize:
+            t = ImageIO.resize(t, resize)
+
+        if to_float:
+            t = t.apply(lambda x: (float(x) / 255.0))
+            t = (t - Tensor([mean])) / Tensor([std])
+
+        if dimorder == "HWC":
+            pass
+        elif dimorder == "BHWC":
+            t = t.unsqueeze(0)
+        elif dimorder == "CHW":
+            t = Tensor(LLOps.f_permute_201(t.elems))
+        elif dimorder == "BCHW":
+            t = Tensor([LLOps.f_permute_201(t.elems)])
+        return t
 
     @staticmethod
     def save_png(path, tensor):
@@ -1032,7 +1136,7 @@ class ImageIO:
         header = b'\x89PNG\r\n\x1a\n'
 
         # IHDR
-        h_chunk_size = int.to_bytes(13)
+        h_chunk_size = int.to_bytes(13, length=4, byteorder="big")
         h_chunk_type = b'IHDR'
         h_chunk_data = ...
         h_chunk_crc = ...
@@ -1044,13 +1148,23 @@ class ImageIO:
         d_chunk_crc = ...
 
         # IEND
-        e_chunk_size = int.to_bytes(0)
+        e_chunk_size = int.to_bytes(0, length=4, byteorder="big")
         e_chunk_type = b'IEND'
         e_chunk_data = b''
         e_chunk_crc = ...
         joint = (header + h_chunk_size + h_chunk_type + h_chunk_data + h_chunk_crc
                         + d_chunk_size + d_chunk_type + d_chunk_data + d_chunk_crc
                         + e_chunk_size + e_chunk_type + e_chunk_data + e_chunk_crc)
+
+    @staticmethod
+    def resize(tensor, new_size: tuple):
+        H, W, C = tensor.shape
+        new_tensor = tensor.zeros(new_size)
+        for new_i, i in zip(range(new_size[0]), range(0, H, H // new_size[0])):
+            for new_j, j in zip(range(new_size[1]), range(0, W, W // new_size[1])):
+                new_tensor[new_i, new_j] = tensor[i, j]
+                # TODO Fix
+        return new_tensor
 
 
 if __name__ == "__main__":

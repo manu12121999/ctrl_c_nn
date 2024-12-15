@@ -1,7 +1,7 @@
 # Ctrl_C_NN
 Dependency-free neural network inference framework in a single file.
 
-CURRENTLY IN DEVELOPMENT: NOT IN A USABLE STATE YET
+CURRENTLY IN DEVELOPMENT
 
 ## What is it for
 Inference with simple neural networks where installing dependencies is not possible. This project is and will be dependency-free and has the most open open-source license. Whatever you need it for, just copy the single .py file into your project, and you can run an already-trained neural network. 
@@ -17,11 +17,15 @@ Since it is written 100% in Python, its performance is terrible compared to PyTo
 | Tensor Broadcasting                      | :white_check_mark:         |
 | Tensor Shape Manipulation (e.g. reshape) | :white_check_mark:         |
 | Simple Layers and Non-linearities        | :white_check_mark:         |
-| Forward pass of simple NN                | :large_orange_diamond: WIP |
+| Forward pass of simple NN                | :white_check_mark:         |
 | Backward pass of simple NN               | :large_orange_diamond: WIP |
-| Convolutional Layers                     | :x:                        |
-| Reading pth files                        | :x:                        |
-| Basic Image I/O                          | :x:                        |
+| Basic Convolutional Layers               | :white_check_mark:         |
+| Advanced Conv (ConvTransposed, Grouped)  | :x:                        |
+| Reading pth files                        | :white_check_mark:         |
+| Image IO: Read PNG files                 | :white_check_mark:         |
+| Image IO: Read JPG files                 | :x:                        |
+| Image IO: Save images                    | :x:                        |
+| ...                                      | :x:                        |
 | ...                                      | :x:                        |
 | ...                                      | :x:                        |
 
@@ -39,7 +43,12 @@ f = e.sum(3)  # shape (1,2,4,1)
 g = e.permute((3,0,2,1)) # shape (1, 1, 4, 2)
 ```
 
-## Sample Usage NN
+## Sample Usage inference with pretrained pytorch NN
+```python
+TODO
+```
+
+## Sample Usage training NN
 ```python
 from ctrl_c_nn import nn, Tensor
 
@@ -57,7 +66,7 @@ loss_fn = nn.MSELoss()
 
 for i in range(2000):
     input_tensor = Tensor.random_float((8, 20))
-    target_tensor = Tensor.ones(output_tensor.shape)
+    target_tensor = Tensor.fill(output_tensor.shape, 1.0)
 
     #  no zero_grad() atm (grads dont accumulate)
     output_tensor = model(input_tensor)
