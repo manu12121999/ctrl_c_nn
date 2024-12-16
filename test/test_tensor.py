@@ -161,12 +161,26 @@ class TestTensorLinOps(unittest.TestCase):
         result_D = ccm.Tensor(mat2.tolist()) * ccm.Tensor(mat1.tolist())
         self.assertEqual(result_C.tolist(), result_D.tolist(), f"Tensor operation dimless mul failed.")
 
+    def test_bin_ops_basic(self):
+        shape = (3, 4, 1, 1)
+        a = Tensor.fill(shape, 6)
+        b = Tensor.fill(shape, 2)
+        self.assertEqual((a + b)[0, 2, 0, 0].item(), 8, "add not working")
+        self.assertEqual((a - b)[0, 2, 0, 0].item(), 4, "sub not working")
+        self.assertEqual((a * b)[0, 2, 0, 0].item(), 12, "mul not working")
+        self.assertEqual((a / b)[0, 2, 0, 0].item(), 3, "truediv not working")
+        self.assertEqual((a // b)[0, 2, 0, 0].item(), 3, "floordiv not working")
+
     def test_basic_matmul(self):
         mat1 = np.random.randint(0, 10, size=(400, 200))
         mat2 = np.random.randint(0, 10, size=(200, 300))
+        mat1_tensor = Tensor(mat1.tolist())
+        mat2_tensor = Tensor(mat2.tolist())
         result_A = mat1 @ mat2
-        result_B = ccm.Tensor(mat1.tolist()) @ ccm.Tensor(mat2.tolist())
+        result_B = mat1_tensor @ mat2_tensor
+        result_C = mat1_tensor.matmul_T_2d(mat2_tensor.T)
         self.assertEqual(result_A.tolist(), result_B.tolist(),f"Tensor operation basic matmul failed.")
+        self.assertEqual(result_A.tolist(), result_C.tolist(), f"Tensor operation basic matmul failed.")
 
     def test_matmul_broadcast(self):
         mat1 = np.random.randint(0, 10, size=(30, 40, 200))
@@ -214,7 +228,22 @@ class TestTensorLinOps(unittest.TestCase):
         self.generic_various_shapes_test(np.add, ccm.Tensor.__add__, init2=lambda x: ccm.Tensor(x.tolist()),
                                          shapes=big_shapes_non_singleton)
 
+
 class TestTensorUnaryAndReductions(unittest.TestCase):
+
+    def test_uni_ops_basic(self):
+        shape = (3, 4, 1, 1)
+        a = np.random.randint(-5, 5, shape)
+        b = Tensor(a.tolist())
+        self.assertEqual(np.abs(a).tolist(), b.abs().tolist(), "abs not working")
+        self.assertEqual(np.abs(a).tolist(), abs(b).tolist(), "abs not working")
+        self.assertEqual(np.sqrt(np.abs(a)).tolist(), b.abs().sqrt().tolist(), "sqrt not working")
+        self.assertEqual(np.exp(a).tolist(), b.exp().tolist(), "exp not working")
+        self.assertEqual(np.power(a, 3).tolist(), pow(b, 3).tolist(), "pow not working")
+        self.assertEqual(np.power(a, 3).tolist(), b.pow(3).tolist(), "pow not working")
+        self.assertEqual(np.clip(a, -2, 3).tolist(), b.clamp(-2, 3).tolist(), "clamp not working")
+        self.assertEqual(np.log(a+6).tolist(), (b+6).log().tolist(), "log not working")
+        self.assertEqual(np.power(a, 2).tolist(), b.apply(lambda x: x*x).tolist(), "apply not working")
 
     def test_abs(self):
         mat1 = np.random.randint(-10, 10, size=(1, 4, 6, 2, 1, 3))
@@ -328,12 +357,13 @@ class TestTensorShapeManipulation(unittest.TestCase):
         self.assertEqual(np.squeeze(tensor_np, 5).tolist(), tensor_ctrlc.squeeze(5).tolist(), f"Tensor unsqueeze dim=5 does not work.")
 
     def test_reshape(self):
-        tensor_np = np.random.randint(0, 10, size=(5,3))
+        tensor_np = np.random.randint(0, 10, size=(5, 3))
         tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
-        self.assertEqual(tensor_np.reshape([3,5]).tolist(), tensor_ctrlc.reshape([3,5]).tolist(), f"Tensor reshape 5,3 to 3,5 does not work.")
+        self.assertEqual(tensor_np.reshape([3, 5]).tolist(), tensor_ctrlc.reshape([3, 5]).tolist(), f"Tensor reshape 5,3 to 3,5 does not work.")
         self.assertEqual(tensor_np.reshape([15]).tolist(), tensor_ctrlc.reshape([15]).tolist(), f"Tensor reshape 5,3 to 15 does not work.")
-        self.assertEqual(tensor_np.reshape([3,5,1]).tolist(), tensor_ctrlc.reshape([3,5,1]).tolist(), f"Tensor reshape 5,3 to 3,5,1 does not work.")
-        self.assertEqual(tensor_np.reshape([1,1,3,5,1]).tolist(), tensor_ctrlc.reshape([1,1,3,5,1]).tolist(), f"Tensor reshape 5,3 to 3,5,1 does not work.")
+        self.assertEqual(tensor_np.reshape([3, 5, 1]).tolist(), tensor_ctrlc.reshape([3, 5, 1]).tolist(), f"Tensor reshape 5,3 to 3,5,1 does not work.")
+        self.assertEqual(tensor_np.reshape([1, 1, 3, 5, 1]).tolist(), tensor_ctrlc.reshape([1, 1, 3, 5, 1]).tolist(), f"Tensor reshape 5,3 to 3,5,1 does not work.")
+        self.assertEqual(tensor_np.reshape([1, 1, 3, 5, 1]).tolist(), tensor_ctrlc.view([1, 1, 3, 5, 1]).tolist(), f"Tensor view 5,3 to 3,5,1 does not work.")
 
     def test_setitem(self):
         tensor_np = np.zeros((5, 10))
@@ -412,6 +442,7 @@ class TestTensorShapeManipulation(unittest.TestCase):
         self.assertListEqual(tensor_np.max((1, 3)).tolist(), tensor_ctrlc.max((1, 3)).tolist(), f"Tensor max all does not work.")
         self.assertListEqual(tensor_np.max((0, 4)).tolist(), tensor_ctrlc.max((0, 4)).tolist(), f"Tensor max all does not work.")
 
+
 class TestTensorCreation(unittest.TestCase):
 
     def test_create(self):
@@ -425,6 +456,7 @@ class TestTensorCreation(unittest.TestCase):
         t5 = Tensor.random_float(shape, min=-2, max=+2)
         t6 = Tensor.random_int(shape, min=-2, max=+2)
         t7 = Tensor.fill(shape, 27)
+        t8 = Tensor.fill(shape, 27)
         self.assertEqual(shape, t1.shape, f"Tensor create gives wrong shape.")
         self.assertEqual(shape, t2.shape, f"Tensor create gives wrong shape.")
         self.assertEqual(shape, t3.shape, f"Tensor create gives wrong shape.")
@@ -432,6 +464,24 @@ class TestTensorCreation(unittest.TestCase):
         self.assertEqual(shape, t5.shape, f"Tensor create gives wrong shape.")
         self.assertEqual(shape, t6.shape, f"Tensor create gives wrong shape.")
         self.assertEqual(shape, t7.shape, f"Tensor create gives wrong shape.")
+        self.assertEqual(3, t7.ndim, f"Tensor create gives wrong ndim.")
+        self.assertEqual(3, t7.size(0), f"Tensor create gives wrong ndim.")
+        self.assertEqual(2, t7.size(1), f"Tensor create gives wrong ndim.")
+        self.assertEqual(1, t7.size(2), f"Tensor create gives wrong ndim.")
+        self.assertNotEqual(t7.__repr__(), "", "Does not print")
+        self.assertEqual(t7 == t8, True, "Equal fails")
+        self.assertEqual(t4 == t8, False, "Equal fails")
+
+    def test_stack(self):
+        shape = (3, 2, 1)
+        a = Tensor.ones(shape)
+        b = Tensor.zeros(shape)
+        c = Tensor.ones(shape)
+        d = Tensor.zeros(shape)
+        res = Tensor.stack([a, b, c, d])
+        self.assertEqual((4, 3, 2, 1), res.shape, "Stack does not work")
+        self.assertEqual(res[0, 0, 0, 0].item(), 1, "Stack does not work")
+        self.assertEqual(res[1, 0, 0, 0].item(), 0, "Stack does not work")
 
     def test_create_single_int(self):
         n1 = np.array(4)
