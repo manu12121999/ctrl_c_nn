@@ -259,7 +259,7 @@ class TestTensorShapeManipulation(unittest.TestCase):
         self.assertEqual(tensor_np[0, 2:3, :, 0].tolist(), tensor_ctrlc[0, 2:3, :, 0].tolist(), f"Tensor multidim getitem does not work.")
         self.assertEqual(tensor_np[:, 2, :3, 0].tolist(), tensor_ctrlc[:, 2, :3, 0].tolist(), f"Tensor multidim getitem does not work.")
 
-        def test_slicing_assignment(self):
+    def test_slicing_assignment(self):
         tensor_np = np.random.randint(0, 10, size=(3, 4, 3, 1, 2))
         tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
 
