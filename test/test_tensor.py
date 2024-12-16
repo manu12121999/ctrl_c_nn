@@ -259,6 +259,50 @@ class TestTensorShapeManipulation(unittest.TestCase):
         self.assertEqual(tensor_np[0, 2:3, :, 0].tolist(), tensor_ctrlc[0, 2:3, :, 0].tolist(), f"Tensor multidim getitem does not work.")
         self.assertEqual(tensor_np[:, 2, :3, 0].tolist(), tensor_ctrlc[:, 2, :3, 0].tolist(), f"Tensor multidim getitem does not work.")
 
+        def test_slicing_assignment(self):
+        tensor_np = np.random.randint(0, 10, size=(3, 4, 3, 1, 2))
+        tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
+
+        tensor_np[0] = tensor_np[1]
+        tensor_ctrlc[0] = tensor_ctrlc[1]
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setitem does not work (A).")
+        tensor_np[1] = tensor_np[2]
+        tensor_ctrlc[1] = tensor_ctrlc[2]
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setitem does not work (A2).")
+        tensor_np[1:2] = tensor_np[2:3]
+        tensor_ctrlc[1:2] = tensor_ctrlc[2:3]
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setslice does not work (B).")
+        tensor_np[:2] = tensor_np[1:3]
+        tensor_ctrlc[:2] = tensor_ctrlc[1:3]
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setslice does not work (C).")
+        tensor_np[:] = tensor_np[:]
+        tensor_ctrlc[:] = tensor_ctrlc[:]
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setslice does not work (D).")
+        tensor_np[2:] = tensor_np[1:-1]
+        tensor_ctrlc[2:] = tensor_ctrlc[1:-1]
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setslice does not work (E).")
+        tensor_np[2, 3] = tensor_np[2, 1]
+        tensor_ctrlc[2, 3] = tensor_ctrlc[2, 1]
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setitem multidim does not work (F).")
+        tensor_np[2, 1] = tensor_np[2, 0]
+        tensor_ctrlc[2, 1] = tensor_ctrlc[2, 0]
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setitem multidim not work (F2).")
+        tensor_np[0, 2:3] = tensor_np[0, 1:2]
+        tensor_ctrlc[0, 2:3] = tensor_ctrlc[0, 1:2]
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setslice does not work (G).")
+        tensor_np[:, 2] = tensor_np[:, 1]
+        tensor_ctrlc[:, 2] = tensor_ctrlc[:, 1]
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setslice does not work (H).")
+        tensor_np[0, 2:3, :, 0] = tensor_np[0, 3:4, :, 0]
+        tensor_ctrlc[0, 2:3, :, 0] = tensor_ctrlc[0, 3:4, :, 0]
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setslice does not work (I).")
+        tensor_np[:, 2, :3, 0] = tensor_np[:, 2, :3, 0]
+        tensor_ctrlc[:, 2, :3, 0] = tensor_ctrlc[:, 2, :3, 0]
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setslice does not work (J).")
+        tensor_np[:, 2, :3] = tensor_np[:, 2, :3]
+        tensor_ctrlc[:, 2, :3] = tensor_ctrlc[:, 2, :3]
+        self.assertEqual(tensor_np.tolist(), tensor_ctrlc.tolist(), f"Tensor setslice does not work (J).")
+
     def test_basic_flatten(self):
         tensor_np = np.random.randint(0, 10, size=(3, 4, 3, 1, 2))
         tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
@@ -332,6 +376,41 @@ class TestTensorShapeManipulation(unittest.TestCase):
         tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
         self.assertEqual(np.transpose(tensor_np, (4, 1, 0, 3, 5, 2)).tolist(), tensor_ctrlc.permute((4, 1, 0, 3, 5, 2)).tolist(), f"Tensor permute 6d does not work.")
 
+    def test_basic_sum(self):
+        tensor_np = np.random.randint(0, 10, size=(3, 4, 3, 1, 2))
+        tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
+        self.assertEqual(tensor_np.sum().tolist(), tensor_ctrlc.sum().tolist(), f"Tensor sum all does not work.")
+        self.assertEqual(tensor_np.sum(1).tolist(), tensor_ctrlc.sum(1).tolist(), f"Tensor sum all does not work.")
+        self.assertEqual(tensor_np.sum(4).tolist(), tensor_ctrlc.sum(4).tolist(), f"Tensor sum all does not work.")
+        self.assertEqual(tensor_np.sum((0,)).tolist(), tensor_ctrlc.sum(0,).tolist(), f"Tensor sum all does not work.")
+        self.assertEqual(tensor_np.sum((3,)).tolist(), tensor_ctrlc.sum(3,).tolist(), f"Tensor sum all does not work.")
+        self.assertEqual(tensor_np.sum((4,)).tolist(), tensor_ctrlc.sum(4, ).tolist(), f"Tensor sum all does not work.")
+        self.assertEqual(tensor_np.sum((1, 3)).tolist(), tensor_ctrlc.sum((1, 3)).tolist(), f"Tensor sum all does not work.")
+        self.assertEqual(tensor_np.sum((0, 4)).tolist(), tensor_ctrlc.sum((0, 4)).tolist(), f"Tensor sum all does not work.")
+
+    def test_basic_mean(self):
+        tensor_np = np.ones((3, 4, 3, 1, 2))  # TODO: other values than 1
+        tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
+        self.assertEqual(tensor_np.mean().tolist(), tensor_ctrlc.mean().tolist(), f"Tensor mean all does not work.")
+        self.assertListEqual(tensor_np.mean(1).tolist(), tensor_ctrlc.mean(1).tolist(), f"Tensor mean all does not work.")
+        self.assertListEqual(tensor_np.mean(4).tolist(), tensor_ctrlc.mean(4).tolist(), f"Tensor mean all does not work.")
+        self.assertListEqual(tensor_np.mean((0,)).tolist(), tensor_ctrlc.mean(0, ).tolist(), f"Tensor mean all does not work.")
+        self.assertListEqual(tensor_np.mean((3,)).tolist(), tensor_ctrlc.mean(3, ).tolist(), f"Tensor mean all does not work.")
+        self.assertListEqual(tensor_np.mean((4,)).tolist(), tensor_ctrlc.mean(4, ).tolist(), f"Tensor mean all does not work.")
+        self.assertListEqual(tensor_np.mean((1, 3)).tolist(), tensor_ctrlc.mean((1, 3)).tolist(), f"Tensor mean all does not work.")
+        self.assertListEqual(tensor_np.mean((0, 4)).tolist(), tensor_ctrlc.mean((0, 4)).tolist(), f"Tensor mean all does not work.")
+
+    def test_basic_max(self):
+        tensor_np = np.random.randint(0, 10, size=(3, 4, 3, 1, 2))
+        tensor_ctrlc = ccm.Tensor(tensor_np.tolist())
+        self.assertEqual(tensor_np.max().tolist(), tensor_ctrlc.max().tolist(), f"Tensor max all does not work.")
+        self.assertListEqual(tensor_np.max(1).tolist(), tensor_ctrlc.max(1).tolist(), f"Tensor max all does not work.")
+        self.assertListEqual(tensor_np.max(4).tolist(), tensor_ctrlc.max(4).tolist(), f"Tensor max all does not work.")
+        self.assertListEqual(tensor_np.max((0,)).tolist(), tensor_ctrlc.max(0, ).tolist(), f"Tensor max all does not work.")
+        self.assertListEqual(tensor_np.max((3,)).tolist(), tensor_ctrlc.max(3, ).tolist(), f"Tensor max all does not work.")
+        self.assertListEqual(tensor_np.max((4,)).tolist(), tensor_ctrlc.max(4, ).tolist(), f"Tensor max all does not work.")
+        self.assertListEqual(tensor_np.max((1, 3)).tolist(), tensor_ctrlc.max((1, 3)).tolist(), f"Tensor max all does not work.")
+        self.assertListEqual(tensor_np.max((0, 4)).tolist(), tensor_ctrlc.max((0, 4)).tolist(), f"Tensor max all does not work.")
 
 class TestTensorCreation(unittest.TestCase):
 
