@@ -240,6 +240,16 @@ class LLOps:
         return m
 
     @staticmethod
+    def f_permute_10(a: list) -> list:
+        # permute shape (I, J, K) to (J, I, K)
+        I, J = len(a), len(a[0])
+
+        m = [[a[i][j]
+               for i in range(I)]
+              for j in range(J)]
+        return m
+
+    @staticmethod
     def f_advanced_indexing_1d(a: (list, tuple), b: (list, tuple)):
         return tuple([a[b_i] for b_i in b])
 
@@ -621,6 +631,14 @@ class Tensor:
         return self.reshape(shape)
 
     def permute(self, shape):
+        # Important cases are handled much quicker
+        if len(shape) >= 2 and shape[:2] == (1, 0) and shape[2:] == tuple(range(2, len(shape))):
+            # e.g. permute(1,0,2,3,4,5,6,7)
+            return Tensor(LLOps.f_permute_10(self.elems))
+        if len(shape) >= 3 and shape[:3] == (2, 0, 1) and shape[3:] == tuple(range(3, len(shape))):
+            # e.g. permute(2,0,1,3,4,5,6,7)
+            return Tensor(LLOps.f_permute_201(self.elems))
+
         # newindex = old_index[perm]
         def calc_card(a):
             prod = 1
@@ -871,33 +889,30 @@ class nn:
             H_out = (H - K + 2 * P) // S + 1
             W_out = (W - K + 2 * P) // S + 1
 
-            x_padded = Tensor.fill((B, G, C_in // G, H + 2 * P, W + 2 * P), value=0.0)
+            x_padded = Tensor.zeros((B, G, C_in // G, H + 2 * P, W + 2 * P))
             x_padded[:, :, :, P:H + P, P:W + P] = x.reshape((B, G, C_in // G, H, W))
-            assert x_padded[:, :, :, P:H + P, P:W + P] == x.reshape(
-                (B, G, C_in // G, H, W)), f'A {x_padded[:, :, :, P:H + P, P:W + P]}, B {x.reshape((G, B, C_in // G, H, W))}'
+            assert x_padded[:, :, :, P:H + P, P:W + P] == x.reshape((B, G, C_in // G, H, W))
 
             reshaped_kernel = self.weight.reshape((G, C_out // G, C_in // G * K * K))
 
             def im2col(x_pad):
-                coloums = [x_pad[b, g, :, h:h + K, w:w + K].flatten().tolist()
+                coloums = [[x_pad[b, g, :, h:h + K, w:w + K].flatten().tolist()
                            for b in range(B)
-                           for g in range(G)
                            for h in range(0, H + 2 * P - K + 1, S)
                            for w in range(0, W + 2 * P - K + 1, S)
-                           ]
+                           ] for g in range(G)]
                 return coloums
 
             col_repres = im2col(x_padded)
             start_mat = time.time()
-            # print(reshaped_kernel.shape, Tensor(col_repres).shape)
-            res = reshaped_kernel @ Tensor(
-                col_repres).T  # for performance reasons, Equal to reshaped_kernel @ Tensor(col_repres).T
+            res = Tensor.stack([reshaped_kernel[i].matmul_T_2d(Tensor(col_repres[i])) for i in range(G)])
             end_mat = time.time()
+            res = res.reshape((G, C_out//G, B, H_out, W_out)).permute((2,0,1,3,4))
             res = res.reshape((B, C_out, H_out, W_out))
             res = res + self.bias.reshape((1, C_out, 1, 1))
 
             assert res.shape == (B, C_out, H_out, W_out), f"res shape {res.shape} is not {(B, C_out, H_out, W_out)}"
-            print("Conv2d took in total", time.time() - start_time, " of which Matmul took", end_mat - start_mat)
+            print("grouped Conv2d took in total", time.time() - start_time, " of which Matmul took", end_mat - start_mat)
             return res
 
     class Conv2dTranspose(Module):
@@ -1275,9 +1290,9 @@ class ImageIO:
         elif dimorder == "BHWC":
             t = t.unsqueeze(0)
         elif dimorder == "CHW":
-            t = Tensor(LLOps.f_permute_201(t.elems))
+            t = t.permute((2,0,1))
         elif dimorder == "BCHW":
-            t = Tensor([LLOps.f_permute_201(t.elems)])
+            t = t.permute((2,0,1)).unsqueeze(0)
         return t
 
     @staticmethod

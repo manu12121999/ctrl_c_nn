@@ -9,6 +9,21 @@ Inference with simple neural networks where installing dependencies is not possi
 ## What is it NOT for
 Since it is written 100% in Python, its performance is terrible compared to PyTorch or numpy-based frameworks. It's not designed for the training of neural networks but to load and run simple Pytorch neural networks.
 
+## Sample Usage: Inference with pretrained PyTorch NN
+```python
+import ctrl_c_nn
+from ctrl_c_nn import Tensor, nn, ImageIO
+
+input_image = ImageIO.read_png("dog.png", num_channels=3, resize=(224, 224), 
+                               dimorder="BCHW", to_float=True, 
+                               mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+
+model = SqueezeNet()  # when defining change all torch.nn to ctrl_c_nn.nn
+model.load_state_dict(ctrl_c_nn.load("model.pth"))
+output = model(input_image)
+probabilities = ctrl_c_nn.utils.softmax(output[0], dim=0)
+```
+
 ## WIP
 | Description                              | Status                     |
 |------------------------------------------|----------------------------|
@@ -19,22 +34,33 @@ Since it is written 100% in Python, its performance is terrible compared to PyTo
 | Simple Layers and Non-linearities        | :white_check_mark:         |
 | Forward pass of simple NN                | :white_check_mark:         |
 | Backward pass of simple NN               | :large_orange_diamond: WIP |
-| Basic Convolutional Layers               | :white_check_mark:         |
-| Advanced Conv (ConvTransposed, Grouped)  | :x:                        |
+| Convolutional Layers                     | :white_check_mark:         |
+| Transposed Conv & Upsampling             | :large_orange_diamond: WIP |
 | Reading pth files                        | :white_check_mark:         |
+| Forward pass of CNN                      | :white_check_mark:         |
+| Backward pass of CNN                     | :x:                        |
 | Image IO: Read PNG files                 | :white_check_mark:         |
 | Image IO: Read JPG files                 | :x:                        |
 | Image IO: Save images                    | :x:                        |
 | ...                                      | :x:                        |
 | ...                                      | :x:                        |
-| ...                                      | :x:                        |
+
+Hopefully one day
+
+| Description              | Status |
+|--------------------------|--------|
+| GPU Matmul (e.g. OpenCL) | :x:    |
+| Autograd                 | :x:    |
+| ...                      | :x:    |
 
 
-## Sample Usage Tensor
+
+
+## Sample Usage: Tensor
 ```python
 from ctrl_c_nn import Tensor
 
-a = Tensor.zeros((2, 4, 8, 2))
+a = Tensor.zeros(2, 4, 8, 2)
 b = Tensor.zeros((2, 8))
 c = a@b  # shape (2, 4, 8, 8)
 d = c[0, 2:, :, :1] + b.unsqueeze(2)  # shape (2,8,1)
@@ -43,15 +69,11 @@ f = e.sum(3)  # shape (1,2,4,1)
 g = e.permute((3,0,2,1)) # shape (1, 1, 4, 2)
 ```
 
-## Sample Usage inference with pretrained pytorch NN
-```python
-TODO
-```
-
-## Sample Usage training NN
+## Sample Usage: Training a simple NN
 ```python
 from ctrl_c_nn import nn, Tensor
 
+# it's the simplest to define the network as one Sequential
 model = nn.Sequential(
     nn.Linear(20, 128),
     nn.LeakyReLU(),
