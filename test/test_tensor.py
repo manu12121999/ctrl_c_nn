@@ -163,8 +163,8 @@ class TestTensorLinOps(unittest.TestCase):
 
     def test_bin_ops_basic(self):
         shape = (3, 4, 1, 1)
-        a = Tensor.fill(shape, 6)
-        b = Tensor.fill(shape, 2)
+        a = Tensor.fill(shape, value=6)
+        b = Tensor.fill(shape, value=2)
         self.assertEqual((a + b)[0, 2, 0, 0].item(), 8, "add not working")
         self.assertEqual((a - b)[0, 2, 0, 0].item(), 4, "sub not working")
         self.assertEqual((a * b)[0, 2, 0, 0].item(), 12, "mul not working")
@@ -455,8 +455,8 @@ class TestTensorCreation(unittest.TestCase):
         t4 = Tensor.random_int(shape)
         t5 = Tensor.random_float(shape, min=-2, max=+2)
         t6 = Tensor.random_int(shape, min=-2, max=+2)
-        t7 = Tensor.fill(shape, 27)
-        t8 = Tensor.fill(shape, 27)
+        t7 = Tensor.fill(shape, value=27)
+        t8 = Tensor.fill(shape, value=27)
         self.assertEqual(shape, t1.shape, f"Tensor create gives wrong shape.")
         self.assertEqual(shape, t2.shape, f"Tensor create gives wrong shape.")
         self.assertEqual(shape, t3.shape, f"Tensor create gives wrong shape.")

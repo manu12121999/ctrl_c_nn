@@ -345,38 +345,41 @@ class Tensor:
 
     def size(self, dim):
         return self.shape[dim]
+
     ######################
     # Construction Methods
     #####################
 
     @staticmethod
-    def zeros(shape):
-        if isinstance(shape, int):
-            shape = (shape, )
-        return Tensor(LLOps.fill(shape, 0))
+    def zeros(*shape, dtype=float):
+        if len(shape)==1 and isinstance(shape[0], (list, tuple)):
+            shape = shape[0]
+        value = 0.0 if dtype == float else 0 if dtype == int else None
+        return Tensor.fill(shape, value=value)
 
     @staticmethod
-    def ones(shape):
-        if isinstance(shape, int):
-            shape = (shape, )
-        return Tensor(LLOps.fill(shape, 1))
+    def ones(*shape, dtype=float):
+        if len(shape)==1 and isinstance(shape[0], (list, tuple)):
+            shape = shape[0]
+        value = 1.0 if dtype == float else 1 if dtype == int else None
+        return Tensor.fill(shape, value=value)
 
     @staticmethod
-    def fill(shape, number):
-        if isinstance(shape, int):
-            shape = (shape, )
-        return Tensor(LLOps.fill(shape, number))
+    def fill(*shape, value):
+        if len(shape)==1 and isinstance(shape[0], (list, tuple)):
+            shape = shape[0]
+        return Tensor(LLOps.fill(shape, value))
 
     @staticmethod
-    def random_float(shape, min=-1.0, max=1.0):
-        if isinstance(shape, int):
-            shape = (shape, )
+    def random_float(*shape, min=-1.0, max=1.0):
+        if isinstance(shape[0], (list, tuple)):
+            shape = shape[0]
         return Tensor(LLOps.fill_callable(shape, lambda: random.uniform(min, max)))
 
     @staticmethod
-    def random_int(shape, min=0, max=10):
-        if isinstance(shape, int):
-            shape = (shape,)
+    def random_int(*shape, min=0, max=10):
+        if isinstance(shape[0], (list, tuple)):
+            shape = shape[0]
         return Tensor(LLOps.fill_callable(shape, lambda: random.randint(min, max)))
 
     @staticmethod
@@ -649,6 +652,12 @@ class nn:
         def __call__(self, x: Tensor):
             return self.forward(x)
 
+        def eval(self):
+            pass
+
+        def train(self):
+            pass
+
         def forward(self, x: Tensor):
             raise NotImplementedError
 
@@ -659,6 +668,9 @@ class nn:
             weight_apply(self, state_dict)
 
     class ReLU(Module):
+        def __init__(self, *args, **kwargs):
+            super().__init__()
+
         def forward(self, x: Tensor):
             self.cache = x
             return x.apply(lambda v: max(0.0, v))
@@ -670,24 +682,30 @@ class nn:
             return dx
 
     class LeakyReLU(Module):
+        def __init__(self, negative_slope=0.01, *args, **kwargs):
+            super().__init__()
+            self.negative_slope = negative_slope
+
         def forward(self, x: Tensor):
             self.cache = x
-            return x.apply(lambda v: 0.1*v if v < 0 else v)
+            return x.apply(lambda v: self.negative_slope*v if v < 0 else v)
 
         def backward(self, dout: Tensor):
             x = self.cache
-            mask = x.apply(lambda v: 1 if v >= 0 else 0.1)
+            mask = x.apply(lambda v: 1 if v >= 0 else self.negative_slope)
             dx = dout * mask
             return dx
 
     class Linear(Module):
-        def __init__(self, in_features, out_features):
+        def __init__(self, in_features, out_features, bias=True):
             super().__init__()
             init_value_min = -0.1
             init_value_max = 0.1
-            self.weight = Tensor.random_float(shape=(out_features, in_features), min=init_value_min, max=init_value_max)
-            self.bias = Tensor.random_float(shape=(out_features, ), min=init_value_min, max=init_value_max)
-
+            self.weight = Tensor.random_float((out_features, in_features), min=init_value_min, max=init_value_max)
+            if bias:
+                self.bias = Tensor.random_float((out_features, ), min=init_value_min, max=init_value_max)
+            else:
+                self.bias = Tensor.zeros(out_features)
             self.dw = None
             self.db = None
 
@@ -769,19 +787,25 @@ class nn:
             return dout
 
     class Conv2d(Module):
-        def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride=1, padding=0, bias=True, *args, **kwargs):
+        def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride=1, padding=0, groups=1, bias=True, *args, **kwargs):
             if args != () or kwargs != {}:
                 print('Warning, Conv2dTranspose ignoring', args, kwargs)
             super().__init__()
+            assert out_channels % groups == 0
+            assert in_channels % groups == 0
             self.stride = stride
             self.padding = padding
             self.kernel_size = kernel_size
             self.out_channels = out_channels
-            self.weight = Tensor.fill(shape=(out_channels, in_channels, kernel_size, kernel_size), number=0.0)
-            self.bias = Tensor.fill(shape=(out_channels, ), number=0.0 if bias else 0.0)
+            self.groups = groups
+            self.weight = Tensor.fill((out_channels, in_channels//groups, kernel_size, kernel_size), value=0.0)
+            self.bias = Tensor.fill((out_channels, ), value=0.0 if bias else 0.0)
 
         def forward(self, x: Tensor):
-            return self.forward_gemm(x)
+            if self.groups == 1:
+                return self.forward_gemm(x)
+            else:
+                return self.forward_gemm_grouped(x)
 
         def forward_naive(self, x: Tensor):
             #  shapes x: (B, C_in, H, W)    w: (C_out, C_in, K, K)    b: (C_Out)    out: (B, C_out, ~H/s, ~W/s)
@@ -811,7 +835,7 @@ class nn:
             H_out = (H - K + 2 * P) // S + 1
             W_out = (W - K + 2 * P) // S + 1
 
-            x_padded = Tensor.fill((B, C_in, H + 2 * P, W + 2 * P), 0.0)
+            x_padded = Tensor.zeros(B, C_in, H + 2 * P, W + 2 * P)
             x_padded[:, :, P:H+P, P:W+P] = x
             assert x_padded[:, :, P:H + P, P:W + P] == x
 
@@ -829,10 +853,50 @@ class nn:
             start_mat = time.time()
             res = reshaped_kernel.matmul_T_2d(Tensor(col_repres))  # for performance reasons, Equal to reshaped_kernel @ Tensor(col_repres).T
             end_mat = time.time()
-            res = res.reshape((B, C_out, H_out, W_out))
+            if B > 1:
+                res = res.reshape((C_out, B, H_out, W_out)).permute((1,0,2,3))
+            else:
+                res = res.reshape((1, C_out, H_out, W_out))
             res = res + self.bias.reshape((1, C_out, 1, 1))
 
             assert res.shape == (B, C_out, H_out, W_out)
+            print("Conv2d took in total", time.time() - start_time, " of which Matmul took", end_mat - start_mat)
+            return res
+
+        def forward_gemm_grouped(self, x: Tensor):
+            start_time = time.time()
+            B, C_in, H, W = x.shape
+            C_out = self.out_channels
+            K, P, S, G = self.kernel_size, self.padding, self.stride, self.groups
+            H_out = (H - K + 2 * P) // S + 1
+            W_out = (W - K + 2 * P) // S + 1
+
+            x_padded = Tensor.fill((B, G, C_in // G, H + 2 * P, W + 2 * P), value=0.0)
+            x_padded[:, :, :, P:H + P, P:W + P] = x.reshape((B, G, C_in // G, H, W))
+            assert x_padded[:, :, :, P:H + P, P:W + P] == x.reshape(
+                (B, G, C_in // G, H, W)), f'A {x_padded[:, :, :, P:H + P, P:W + P]}, B {x.reshape((G, B, C_in // G, H, W))}'
+
+            reshaped_kernel = self.weight.reshape((G, C_out // G, C_in // G * K * K))
+
+            def im2col(x_pad):
+                coloums = [x_pad[b, g, :, h:h + K, w:w + K].flatten().tolist()
+                           for b in range(B)
+                           for g in range(G)
+                           for h in range(0, H + 2 * P - K + 1, S)
+                           for w in range(0, W + 2 * P - K + 1, S)
+                           ]
+                return coloums
+
+            col_repres = im2col(x_padded)
+            start_mat = time.time()
+            # print(reshaped_kernel.shape, Tensor(col_repres).shape)
+            res = reshaped_kernel @ Tensor(
+                col_repres).T  # for performance reasons, Equal to reshaped_kernel @ Tensor(col_repres).T
+            end_mat = time.time()
+            res = res.reshape((B, C_out, H_out, W_out))
+            res = res + self.bias.reshape((1, C_out, 1, 1))
+
+            assert res.shape == (B, C_out, H_out, W_out), f"res shape {res.shape} is not {(B, C_out, H_out, W_out)}"
             print("Conv2d took in total", time.time() - start_time, " of which Matmul took", end_mat - start_mat)
             return res
 
@@ -845,8 +909,8 @@ class nn:
             self.padding = padding
             self.kernel_size = kernel_size
             self.out_channels = out_channels
-            self.weight = Tensor.fill(shape=(out_channels, in_channels, kernel_size, kernel_size), number=0.0)
-            self.bias = Tensor.fill(shape=(out_channels, ), number=0.0 if bias else 0)
+            self.weight = Tensor.fill((out_channels, in_channels, kernel_size, kernel_size), value=0.0)
+            self.bias = Tensor.fill((out_channels, ), value=0.0 if bias else 0)
 
         def forward(self, x: Tensor):
             raise NotImplementedError
@@ -855,10 +919,10 @@ class nn:
         def __init__(self, num_features, eps=1e-05, *args, **kwargs):
             if args != () or kwargs != {}:
                 print('Warning, BatchNorm2d ignoring', args, kwargs)
-            self.weight = Tensor.fill((num_features,), 0.0)
-            self.bias = Tensor.fill((num_features,), 0.0)
-            self.running_mean = Tensor.fill((num_features,), 0.0)
-            self.running_var = Tensor.fill((num_features,), 1.0)
+            self.weight = Tensor.fill((num_features,), value=0.0)
+            self.bias = Tensor.fill((num_features,), value=0.0)
+            self.running_mean = Tensor.fill((num_features,), value=0.0)
+            self.running_var = Tensor.fill((num_features,), value=1.0)
             self.num_batches_tracked = Tensor([0.0])
             self.C = num_features
             self.eps = eps
@@ -892,7 +956,7 @@ class nn:
             K, P, S = self.kernel_size, self.padding, self.stride
             H_out = (H - K + 2 * P) // S + 1
             W_out = (W - K + 2 * P) // S + 1
-            x_padded = Tensor.zeros((B, C_in, H + 2 * P, W + 2 * P))
+            x_padded = Tensor.fill((B, C_in, H + 2 * P, W + 2 * P), value=-math.inf)
             x_padded[:, :, P:H+P, P:W+P] = x
             assert x_padded[:, :, P:H+P, P:W+P].tolist() == x.tolist()
             output_tensor = Tensor.zeros((B, C_in, H_out, W_out))
@@ -996,7 +1060,7 @@ class F:
             return new_H, new_W, scale_factor_h, scale_factor_w
 
         new_H, new_W, scale_factor_h, scale_factor_w = get_new_size_and_scale_factors(size, scale_factor)
-        output_tensor = Tensor.fill((B, C, new_H, new_W), 0.0)
+        output_tensor = Tensor.fill((B, C, new_H, new_W), value=0.0)
         if mode == 'nearest':
             for new_h in range(new_H):
                 for new_w in range(new_W):
@@ -1247,7 +1311,7 @@ class ImageIO:
     @staticmethod
     def resize(tensor, new_size: tuple):
         H, W, C = tensor.shape
-        new_tensor = tensor.zeros(new_size)
+        new_tensor = tensor.zeros(new_size, dtype=int)
         for new_i, i in zip(range(new_size[0]), range(0, H, H // new_size[0])):
             for new_j, j in zip(range(new_size[1]), range(0, W, W // new_size[1])):
                 new_tensor[new_i, new_j] = tensor[i, j]
