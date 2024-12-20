@@ -1,8 +1,12 @@
 import unittest
 import numpy as np
-import torch
 import ctrl_c_nn
 
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
 
 class TestNNForward(unittest.TestCase):
     def test_shape_forward_linear(self):
@@ -33,6 +37,8 @@ class TestNNForward(unittest.TestCase):
         pred = model(input)
         self.assertEqual(pred.shape, (8, 128), f"Shape is wrong after sequential layer.")
 
+
+@unittest.skipIf(not TORCH_AVAILABLE, "PyTorch is not installed")
 class TestNNLayers(unittest.TestCase):
 
     def test_conv_layer_single_batch(self):

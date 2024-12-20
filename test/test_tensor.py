@@ -129,14 +129,6 @@ class TestTensorLinOps(unittest.TestCase):
                                  + f"Input matrices \n {mat1} \n and \n {mat2}.\n "
                                  +  f"Results are numpy: \n {result_A} \n and ctrl_c_nn \n {result_B} ")
 
-    @unittest.skip
-    def test_matmul_various_shaped_sanity(self):
-        self.generic_various_shapes_test(func1=np.matmul, func2=torch.matmul, init2=lambda x: torch.Tensor(x).to(torch.int32))
-
-    @unittest.skip
-    def test_add_various_shaped_sanity(self):
-        self.generic_various_shapes_test(np.add, torch.add, init2=lambda x: torch.Tensor(x).to(torch.int32))
-
     def test_basic_add(self):
         mat1 = np.random.randint(0, 10, size=(400, 200))
         mat2 = np.random.randint(0, 10, size=(400, 200))

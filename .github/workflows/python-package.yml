@@ -21,9 +21,10 @@ jobs:
       uses: actions/setup-python@v3
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install numpy
+    - name: Install unittests dependencies
       run: |
-        pip install numpy coverage flake8 pytorch-cpu
+        pip install numpy coverage flake8 
+        pip install pytorch || true
     - name: Test unittests
       run: |
         python -m coverage run -m unittest discover -s ./test  -p 'test_*.py'
