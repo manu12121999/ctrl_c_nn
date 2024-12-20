@@ -23,8 +23,8 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install unittests dependencies
       run: |
-        pip install numpy coverage flake8 
-        pip install pytorch || true
+        pip install numpy coverage flake8
+        pip install torch || true
     - name: Test unittests
       run: |
         python -m coverage run -m unittest discover -s ./test  -p 'test_*.py'
