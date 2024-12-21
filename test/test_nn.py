@@ -66,27 +66,33 @@ class TestNNLayers(unittest.TestCase):
 
 
     def test_conv_layer(self):
-        input_tensor = np.random.randn(3, 6, 48, 16)
-        weights = np.random.randn(54, 6, 3, 3)
-        bias = np.random.randn(54)
+        for kernel_size in range(1, 4):
+            for stride in range(1, 4):
+                for padding in range(0, kernel_size//2 + 1):
+                    input_tensor = np.random.randn(3, 6, 48, 16)
+                    weights = np.random.randn(54, 6, kernel_size, kernel_size)
+                    bias = np.random.randn(54)
 
-        # Pytorch
-        m_pytorch = torch.nn.Conv2d(in_channels=6, out_channels=54, kernel_size=3, stride=1, padding=1)
-        m_pytorch.weight = torch.nn.Parameter(torch.tensor(weights))
-        m_pytorch.bias = torch.nn.Parameter(torch.tensor(bias))
-        out_pytorch = m_pytorch(torch.tensor(input_tensor))
+                    # Pytorch
+                    m_pytorch = torch.nn.Conv2d(in_channels=6, out_channels=54, kernel_size=kernel_size,
+                                                stride=stride, padding=padding)
+                    m_pytorch.weight = torch.nn.Parameter(torch.tensor(weights))
+                    m_pytorch.bias = torch.nn.Parameter(torch.tensor(bias))
+                    out_pytorch = m_pytorch(torch.tensor(input_tensor))
 
-        # Ctrl_C
-        m_ctrl_c = ctrl_c_nn.nn.Conv2d(in_channels=6, out_channels=54, kernel_size=3, stride=1, padding=1)
-        m_ctrl_c.weight.replace(ctrl_c_nn.Tensor(weights))
-        m_ctrl_c.bias.replace(ctrl_c_nn.Tensor(bias))
-        out_ctrl_c = m_ctrl_c(ctrl_c_nn.Tensor(input_tensor))
+                    # Ctrl_C
+                    m_ctrl_c = ctrl_c_nn.nn.Conv2d(in_channels=6, out_channels=54, kernel_size=kernel_size,
+                                                stride=stride, padding=padding)
+                    m_ctrl_c.weight.replace(ctrl_c_nn.Tensor(weights))
+                    m_ctrl_c.bias.replace(ctrl_c_nn.Tensor(bias))
+                    out_ctrl_c = m_ctrl_c(ctrl_c_nn.Tensor(input_tensor))
 
-        self.assertEqual(out_pytorch.shape, out_ctrl_c.shape, "shape mismatch")
-        mean_diff = (out_pytorch - torch.tensor(out_ctrl_c.tolist())).abs().mean()
-        self.assertLess(mean_diff.item(), 1e-5)
-        max_diff = (out_pytorch - torch.tensor(out_ctrl_c.tolist())).abs().max()
-        self.assertLess(max_diff.item(), 1e-2)
+                    self.assertEqual(out_pytorch.shape, out_ctrl_c.shape,
+                                     f"shape mismatch when K={kernel_size}, S={stride}, P={padding}")
+                    mean_diff = (out_pytorch - torch.tensor(out_ctrl_c.tolist())).abs().mean()
+                    self.assertLess(mean_diff.item(), 1e-5)
+                    max_diff = (out_pytorch - torch.tensor(out_ctrl_c.tolist())).abs().max()
+                    self.assertLess(max_diff.item(), 1e-2)
 
     def test_grouped_conv_layer(self):
         input_tensor = np.random.randn(3, 6, 48, 16)
@@ -138,7 +144,7 @@ class TestNNLayers(unittest.TestCase):
     def test_MaxPool_layer(self):
         for kernel_size in range(1, 4):
             for stride in range(1, 4):
-                for padding in range(0,kernel_size//2):
+                for padding in range(0,kernel_size//2 + 1):
                     input_tensor = np.random.randn(3, 6, 42, 42)
 
                     # Pytorch
@@ -233,3 +239,65 @@ class TestNNLayers(unittest.TestCase):
         self.assertLess(mean_diff.item(), 1e-5)
         max_diff = (out_pytorch - torch.tensor(out_ctrl_c.tolist())).abs().max()
         self.assertLess(max_diff.item(), 1e-2)
+
+    def test_Upsampling_layer_by_size(self):
+        input_tensor = np.random.randn(3, 6, 42, 42)
+        # Pytorch
+        m_pytorch = torch.nn.Upsample(size=(23,65), mode='nearest')
+        out_pytorch = m_pytorch(torch.tensor(input_tensor))
+
+        # Ctrl_C
+        m_ctrl_c = ctrl_c_nn.nn.Upsample(size=(23,65), mode='nearest')
+        out_ctrl_c = m_ctrl_c(ctrl_c_nn.Tensor(input_tensor))
+
+        self.assertEqual(out_pytorch.shape, out_ctrl_c.shape, "shape mismatch")
+        mean_diff = (out_pytorch - torch.tensor(out_ctrl_c.tolist())).abs().mean()
+        self.assertLess(mean_diff.item(), 1e-5)
+        max_diff = (out_pytorch - torch.tensor(out_ctrl_c.tolist())).abs().max()
+        self.assertLess(max_diff.item(), 1e-2)
+
+    def test_Upsampling_layer_by_scale_factor(self):
+        input_tensor = np.random.randn(3, 6, 42, 42)
+        # Pytorch
+        m_pytorch = torch.nn.Upsample(scale_factor=(1.32,2.05), mode='bilinear', align_corners=True)
+        out_pytorch = m_pytorch(torch.tensor(input_tensor))
+
+        # Ctrl_C
+        m_ctrl_c = ctrl_c_nn.nn.Upsample(scale_factor=(1.32,2.05), mode='bilinear', align_corners=True)
+        out_ctrl_c = m_ctrl_c(ctrl_c_nn.Tensor(input_tensor))
+
+        # PLOT
+        # tensor_to_plot = (out_pytorch - torch.tensor(out_ctrl_c.tolist())).abs()[0, 0:1]
+        # heatmap = tensor_to_plot.mean(dim=0).numpy()
+        # plt.figure(figsize=(6, 6))
+        # plt.imshow(heatmap, cmap='viridis')
+        # plt.colorbar(label='Intensity')
+        # plt.title('Heatmap of Tensor')
+        # plt.axis('off')
+        # plt.show()
+
+        # Test
+        self.assertEqual(out_pytorch.shape, out_ctrl_c.shape, "shape mismatch")
+        mean_diff = (out_pytorch - torch.tensor(out_ctrl_c.tolist())).abs().mean()
+        self.assertLess(mean_diff.item(), 1e-5)
+        max_diff = (out_pytorch - torch.tensor(out_ctrl_c.tolist())).abs().max()
+        self.assertLess(max_diff.item(), 1e-2)
+
+
+    def test_MaxPool_functional(self):
+        for kernel_size in range(1, 4):
+            for stride in range(1, 4):
+                for padding in range(0,kernel_size//2 + 1):
+                    input_tensor = np.random.randn(1, 3, 112, 112)
+
+                    # Pytorch
+                    out_pytorch = torch.nn.functional.max_pool2d(torch.tensor(input_tensor), kernel_size=kernel_size, stride=stride, padding=padding)
+
+                    # Ctrl_C
+                    out_ctrl_c = ctrl_c_nn.F.max_pool2d(ctrl_c_nn.Tensor(input_tensor),kernel_size=kernel_size, stride=stride, padding=padding)
+
+                    self.assertEqual(out_pytorch.shape, out_ctrl_c.shape, "shape mismatch")
+                    mean_diff = (out_pytorch - torch.tensor(out_ctrl_c.tolist())).abs().mean()
+                    self.assertLess(mean_diff.item(), 1e-5)
+                    max_diff = (out_pytorch - torch.tensor(out_ctrl_c.tolist())).abs().max()
+                    self.assertLess(max_diff.item(), 1e-2)

@@ -353,7 +353,7 @@ class Tensor:
     def __eq__(self, other):
         return self.elems == other.elems
 
-    def size(self, dim):
+    def size(self, dim=slice(None)):
         return self.shape[dim]
 
     ######################
@@ -667,8 +667,8 @@ class nn:
                 print('Warning, ignoring', args, kwargs)
             self.cache = None
 
-        def __call__(self, x: Tensor):
-            return self.forward(x)
+        def __call__(self, *x):
+            return self.forward(*x)
 
         def eval(self):
             pass
@@ -805,10 +805,11 @@ class nn:
             return dout
 
     class Conv2d(Module):
-        def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride=1, padding=0, groups=1, bias=True, *args, **kwargs):
+        def __init__(self, in_channels: int, out_channels: int, kernel_size: int, stride=1, padding=0, dilation=1, groups=1, bias=True, *args, **kwargs):
             if args != () or kwargs != {}:
                 print('Warning, Conv2dTranspose ignoring', args, kwargs)
             super().__init__()
+            assert dilation == 1, 'Dilation unequal to 1 not implemented'
             assert out_channels % groups == 0
             assert in_channels % groups == 0
             self.stride = stride
@@ -966,20 +967,7 @@ class nn:
             super().__init__()
 
         def forward(self, x: Tensor):
-            B, C_in, H, W = x.shape
-            start_time = time.time()
-            K, P, S = self.kernel_size, self.padding, self.stride
-            H_out = (H - K + 2 * P) // S + 1
-            W_out = (W - K + 2 * P) // S + 1
-            x_padded = Tensor.fill((B, C_in, H + 2 * P, W + 2 * P), value=-math.inf)
-            x_padded[:, :, P:H+P, P:W+P] = x
-            assert x_padded[:, :, P:H+P, P:W+P].tolist() == x.tolist()
-            output_tensor = Tensor.zeros((B, C_in, H_out, W_out))
-            for h_out, h in enumerate(range(0, H + 2 * P - K + 1, S)):
-                for w_out, w in enumerate(range(0, W + 2 * P - K + 1, S)):
-                    output_tensor[:, :, h_out, w_out] = x_padded[:, :, h:h+K, w:w+K].max((2, 3))
-            print("MaxPool took ", time.time() - start_time)
-            return output_tensor
+            return F.max_pool2d(x, self.kernel_size, self.stride, self.padding)
 
     class AdaptiveAvgPool2d(Module):
         def __init__(self, output_size):
@@ -1010,13 +998,16 @@ class nn:
             return x
 
     class Upsample(Module):
-        def __init__(self, scale_factor, *args, **kwargs):
+        def __init__(self, size=None, scale_factor=None, mode='nearest', align_corners=False, *args, **kwargs):
             super().__init__()
             print('Warning, ignoring', args, kwargs)
+            self.size = size
             self.scale_factor = scale_factor
+            self.mode = mode
+            self.align_corners = align_corners
 
         def forward(self, x: Tensor):
-            return F.interpolate(x, scale_factor=self.scale_factor)
+            return F.interpolate(x, size=self.size, scale_factor=self.scale_factor, mode=self.mode, align_corners=self.align_corners)
 
     class AbstractLoss:
         def __init__(self):
@@ -1053,8 +1044,10 @@ class nn:
 
 class F:
     @staticmethod
-    def interpolate(input, size=None, scale_factor=None, mode='nearest'):
+    def interpolate(input: Tensor, size=None, scale_factor=None, mode='nearest', align_corners=False):
+        # TODO: make bilinear work with align_corners=False
         B, C, H, W = input.shape
+        time_start = time.time()
         assert mode in ['nearest', 'bilinear']
 
         def get_new_size_and_scale_factors(size, scale_factor):
@@ -1066,12 +1059,16 @@ class F:
                     scale_factor_w = scale_factor
                 new_H = int(math.floor(H * scale_factor_h))
                 new_W = int(math.floor(W * scale_factor_w))
+                if align_corners:
+                    scale_factor_h = (new_H - 1) / (H - 1)
+                    scale_factor_w = (new_W - 1) / (W - 1)
             else:
                 if isinstance(size, int):
                     size = (size, size)
                 new_H, new_W = size
-                scale_factor_h = new_H / H
-                scale_factor_w = new_W / W
+                su = 1 if align_corners else 0
+                scale_factor_h = (new_H - su) / (H - su)
+                scale_factor_w = (new_W - su) / (W - su)
             return new_H, new_W, scale_factor_h, scale_factor_w
 
         new_H, new_W, scale_factor_h, scale_factor_w = get_new_size_and_scale_factors(size, scale_factor)
@@ -1087,17 +1084,38 @@ class F:
                 for new_w in range(new_W):
                     old_h_low = int(new_h // scale_factor_h)
                     old_w_low = int(new_w // scale_factor_w)
-                    old_h_high = min(old_h_low + 1, H-1)
-                    old_w_high = min(old_w_low + 1, W-1)
-                    frac_h = math.fmod(new_h / scale_factor_h, 1)
-                    frac_w = math.fmod(new_w / scale_factor_w, 1)
+                    old_h_high = max(0, min(old_h_low + 1, H-1))
+                    old_w_high = max(0, min(old_w_low + 1, W-1))
+                    frac_h = new_h / scale_factor_h - old_h_low
+                    frac_w = new_w / scale_factor_w - old_w_low
                     p_top_left = (1 - frac_h) * (1 - frac_w) * (input[:, :, old_h_low, old_w_low])
                     p_top_right = (1 - frac_h) * frac_w * (input[:, :, old_h_low, old_w_high])
                     p_bottom_left = frac_h * (1 - frac_w) * (input[:, :, old_h_high, old_w_low])
                     p_bottom_right = frac_h * frac_w * (input[:, :, old_h_high, old_w_high])
                     output_tensor[:, :, new_h, new_w] = p_top_left + p_top_right + p_bottom_left + p_bottom_right
+        print("interpolate took ", time.time() - time_start)
         return output_tensor
 
+    @staticmethod
+    def relu(x: Tensor, inplace = False):
+        return x.apply(lambda v: max(0.0, v))
+
+    @staticmethod
+    def max_pool2d(x: Tensor, kernel_size, stride, padding=0, *args, **kwargs):
+        B, C_in, H, W = x.shape
+        start_time = time.time()
+        K, P, S = kernel_size, padding, stride
+        H_out = (H - K + 2 * P) // S + 1
+        W_out = (W - K + 2 * P) // S + 1
+        x_padded = Tensor.fill((B, C_in, H + 2 * P, W + 2 * P), value=-math.inf)
+        x_padded[:, :, P:H + P, P:W + P] = x
+        assert x_padded[:, :, P:H + P, P:W + P].tolist() == x.tolist()
+        output_tensor = Tensor.zeros((B, C_in, H_out, W_out))
+        for h_out, h in enumerate(range(0, H + 2 * P - K + 1, S)):
+            for w_out, w in enumerate(range(0, W + 2 * P - K + 1, S)):
+                output_tensor[:, :, h_out, w_out] = x_padded[:, :, h:h + K, w:w + K].max((2, 3))
+        print("MaxPool took ", time.time() - start_time)
+        return output_tensor
 
 class PthUnpickler(pickle.Unpickler):
     def __init__(self, picklefile, zipfile, name):
