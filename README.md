@@ -1,18 +1,20 @@
-# Ctrl_C_NN
-Dependency-free neural network inference framework in a single file.
+# Ctrl_C_NN: A Dependency-Free Python Neural Network Framework.
 
-CURRENTLY IN DEVELOPMENT
+## Key Features
+- Single-file framework, dependency-free
+- Simple inference for pretrained PyTorch models
 
 ## What is it for
 Inference with simple neural networks where installing dependencies is not possible. This project is and will be dependency-free and has the most open open-source license. Whatever you need it for, just copy the single .py file into your project, and you can run an already-trained neural network. 
 
+Also useful for educational or academic purposes since the core functionality can be easily understood (or changed).
 ## What is it NOT for
-Since it is written 100% in Python, its performance is terrible compared to PyTorch or numpy-based frameworks. It's not designed for the training of neural networks but to load and run simple Pytorch neural networks.
+Since it is written 100% in Python, its performance is terrible compared to PyTorch (~500x slower). It's not designed for the training of neural networks but to load and run simple pretrained Pytorch NNs.
 
 ## Sample Usage: Inference with pretrained PyTorch NN
 ```python
 import ctrl_c_nn
-from ctrl_c_nn import Tensor, nn, ImageIO
+from ctrl_c_nn import Tensor, nn, F, ImageIO
 
 input_image = ImageIO.read_png("dog.png", num_channels=3, resize=(224, 224), 
                                dimorder="BCHW", to_float=True, 
@@ -21,10 +23,12 @@ input_image = ImageIO.read_png("dog.png", num_channels=3, resize=(224, 224),
 model = SqueezeNet()  # when defining change all torch.nn to ctrl_c_nn.nn
 model.load_state_dict(ctrl_c_nn.load("model.pth"))
 output = model(input_image)
-probabilities = ctrl_c_nn.utils.softmax(output[0], dim=0)
+probabilities = F.softmax(output[0], dim=0)
 ```
 
 ## WIP
+CURRENTLY IN DEVELOPMENT
+
 | Description                              | Status                     |
 |------------------------------------------|----------------------------|
 | Base Tensor class                        | :white_check_mark:         |
@@ -36,6 +40,7 @@ probabilities = ctrl_c_nn.utils.softmax(output[0], dim=0)
 | Backward pass of simple NN               | :large_orange_diamond: WIP |
 | Convolutional Layers                     | :white_check_mark:         |
 | Transposed Conv & Upsampling             | :large_orange_diamond: WIP |
+| Transformer Layers                       | :x:                        |
 | Reading pth files                        | :white_check_mark:         |
 | Forward pass of CNN                      | :white_check_mark:         |
 | Backward pass of CNN                     | :x:                        |

@@ -43,7 +43,7 @@ class LLOps:
 
     @staticmethod
     def f_unary_op(a: list, f: callable) -> list:
-        # input tensor output list of list
+        # Apply function f to all elements
         if not isinstance(a, list):
             return f(a)
         if not isinstance(a[0], list):
@@ -821,10 +821,10 @@ class nn:
             self.bias = Tensor.fill((out_channels, ), value=0.0 if bias else 0.0)
 
         def forward(self, x: Tensor):
-            if self.groups == 1:
+            if self.groups == 1:  # and dilation==1
                 return self.forward_gemm(x)
             else:
-                return self.forward_gemm_grouped(x)
+                return self.forward_gemm_advanced(x)
 
         def forward_naive(self, x: Tensor):
             #  shapes x: (B, C_in, H, W)    w: (C_out, C_in, K, K)    b: (C_Out)    out: (B, C_out, ~H/s, ~W/s)
@@ -847,6 +847,7 @@ class nn:
             return output_tensor
 
         def forward_gemm(self, x: Tensor):
+            # Forward of Convolution layers with transforming to a single Matmul
             start_time = time.time()
             B, C_in, H, W = x.shape
             C_out = self.out_channels
@@ -882,7 +883,8 @@ class nn:
             print("Conv2d took in total", time.time() - start_time, " of which Matmul took", end_mat - start_mat)
             return res
 
-        def forward_gemm_grouped(self, x: Tensor):
+        def forward_gemm_advanced(self, x: Tensor):
+            # Forward of Convolution layers with transforming to a single Matmul. Supports grouped convs
             start_time = time.time()
             B, C_in, H, W = x.shape
             C_out = self.out_channels
@@ -1117,6 +1119,15 @@ class F:
         print("MaxPool took ", time.time() - start_time)
         return output_tensor
 
+    @staticmethod
+    def softmax(input: Tensor, dim=0):
+        if dim == 0:
+            assert input.ndim == 1
+            input_exp = (input - input.max()).exp()
+            return input_exp / input_exp.sum()
+        else:
+            raise NotImplementedError
+
 class PthUnpickler(pickle.Unpickler):
     def __init__(self, picklefile, zipfile, name):
         self.zipfile = zipfile
@@ -1191,14 +1202,6 @@ class utils:
     def cat(tensors, dim):
         return Tensor(LLOps.f_cat([tensor.elems for tensor in tensors], dim))
 
-    @staticmethod
-    def softmax(input: Tensor, dim=0):
-        if dim == 0:
-            assert input.ndim == 1
-            input_exp = (input - input.max()).exp()
-            return input_exp / input_exp.sum()
-        else:
-            raise NotImplementedError
 
     @staticmethod
     def topk(input: Tensor, k):
